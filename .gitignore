@@ -1,7 +1,12 @@
 node_modules/
 dist/
 .wrangler/
-review/after/*.mp4
 .dev.vars
+.env
+.env.*
+!.env.example
 *.log
+logs/
+review/
 .DS_Store
+Thumbs.db

@@ -34,8 +34,9 @@ export interface HandlerDeps {
 
 /**
  * Thin Yahoo pass-through. The body is streamed and never parsed.
- * Workers Cache (see the root wrangler.toml) stores responses from Cache-Control.
- * The injected cache covers local dev, where that front door is not running.
+ * One shared entry per Yahoo symbol and session date `d`. A hit returns
+ * that entry and does not call Yahoo. Workers Cache (wrangler.toml) also
+ * sits in front of this Worker. The injected cache covers local dev.
  */
 export async function handleChartRequest(
   request: Request,

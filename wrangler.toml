@@ -3,8 +3,10 @@ main = "workers/api/src/index.ts"
 compatibility_date = "2026-10-19"
 workers_dev = true
 
-# Workers Cache sits in front of the Worker. Hits never invoke it.
-# The daily `d` query param is part of the cache key.
+# Workers Cache sits in front of the Worker. A hit never runs it and never
+# calls Yahoo. The `d` query param is part of that request cache key.
+# The Worker also stores one Cache API entry per Yahoo symbol and `d`, so
+# alias spellings share the same Yahoo fetch.
 [cache]
 enabled = true
 

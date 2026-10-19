@@ -332,19 +332,19 @@ export function drawPoster(ctx: Ctx): void {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = INK;
-  ctx.font = '600 68px Geist, sans-serif';
-  ctx.fillText('One share price', 96, 168);
-  ctx.font = '500 30px Geist, sans-serif';
+  ctx.font = '600 40px Geist, sans-serif';
+  ctx.fillText('One share price', 96, 148);
+  ctx.font = '500 20px Geist, sans-serif';
   ctx.fillStyle = '#d5dbe6';
-  ctx.fillText('From the first close to the last.', 96, 220);
+  ctx.fillText('From the first close to the last.', 96, 188);
 
   const examples = ['NVDA', 'AAPL', '0700.HK'];
-  ctx.font = '500 26px "Geist Mono", monospace';
+  ctx.font = '500 18px "Geist Mono", monospace';
   let cursor = 96;
-  const chipY = 286;
+  const chipY = 236;
   for (const example of examples) {
     const width = ctx.measureText(example).width;
-    roundRect(ctx, cursor - 16, chipY - 30, width + 32, 46, 10);
+    roundRect(ctx, cursor - 14, chipY - 22, width + 28, 34, 8);
     ctx.fillStyle = 'rgba(255,255,255,0.05)';
     ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.16)';
@@ -362,11 +362,11 @@ export function drawPoster(ctx: Ctx): void {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = INK;
-  ctx.font = '600 52px Geist, sans-serif';
-  ctx.fillText('Opens on the first close.', plot.x, plot.y + 72);
-  ctx.font = '500 36px Geist, sans-serif';
+  ctx.font = '600 32px Geist, sans-serif';
+  ctx.fillText('Opens on the first close.', plot.x, plot.y + 56);
+  ctx.font = '500 20px Geist, sans-serif';
   ctx.fillStyle = '#d5dbe6';
-  ctx.fillText('The price travels. The last frame states the path.', plot.x, plot.y + 132);
+  ctx.fillText('The price travels. The last frame states the path.', plot.x, plot.y + 96);
 
   ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.lineWidth = 1;
@@ -397,7 +397,7 @@ export function drawPoster(ctx: Ctx): void {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.font = '500 22px "Geist Mono", monospace';
+  ctx.font = '500 18px "Geist Mono", monospace';
   ctx.fillStyle = '#d5dbe6';
   ctx.textBaseline = 'top';
   years.forEach((year, index) => {
@@ -438,9 +438,9 @@ export function drawLoading(ctx: Ctx, ticker: string): void {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = INK;
-  const size = fitLineSize(ctx, ticker, 600, 84, 48, '600');
+  const size = fitLineSize(ctx, ticker, 600, 48, 32, '600');
   ctx.font = `600 ${size}px Geist, sans-serif`;
-  ctx.fillText(ticker, 96, 188);
+  ctx.fillText(ticker, 96, 148);
   ctx.font = '500 16px Geist, sans-serif';
   ctx.fillStyle = '#d5dbe6';
   ctx.textAlign = 'right';
@@ -485,19 +485,19 @@ function drawHeader(ctx: Ctx, animation: Animation, readout: FrameReadout, frame
   const titleMax = CARD_X - 72;
   drawTitle(ctx, ticker, animation.name, titleMax);
 
-  ctx.font = '500 22px Geist, sans-serif';
+  ctx.font = '500 16px Geist, sans-serif';
   ctx.fillStyle = '#c5cedd';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.fillText(`Share price  ·  ${animation.currency}`, 48, 118);
+  ctx.fillText(`Share price  ·  ${animation.currency}`, 48, 90);
 
   const shown = phase === 'hook' ? readout.open : readout.price;
   const hero = formatPrice(animation.currency, shown);
   const heroMax = CARD_X - 80;
-  const heroSize = fitLineSize(ctx, hero, heroMax, 88, 56, '600');
+  const heroSize = fitLineSize(ctx, hero, heroMax, 52, 36, '600');
   ctx.font = `600 ${heroSize}px Geist, sans-serif`;
   ctx.fillStyle = INK;
-  drawTabular(ctx, hero, 48, 214);
+  drawTabular(ctx, hero, 48, 152);
 
   if (phase !== 'hook') {
     const pillIn = damp(Math.max(0, frame - ESTABLISH_END) / 50);
@@ -507,7 +507,7 @@ function drawHeader(ctx: Ctx, animation: Animation, readout: FrameReadout, frame
       ctx,
       `${formatSignedPrice(animation.currency, readout.delta)}  ·  ${formatPercent(readout.change)}`,
       48,
-      278,
+      198,
       readout.delta >= 0,
     );
     ctx.restore();
@@ -519,14 +519,14 @@ function drawHeader(ctx: Ctx, animation: Animation, readout: FrameReadout, frame
     return;
   }
 
-  ctx.font = '500 26px Geist, sans-serif';
+  ctx.font = '500 18px Geist, sans-serif';
   ctx.fillStyle = '#d5dbe6';
   ctx.textAlign = 'left';
   const line =
     phase === 'hook'
       ? `Started ${formatLongDate(animation.dates[0] ?? readout.date)}`
       : `${formatMonthYear(readout.date)}  ·  since ${formatMonthYear(animation.dates[0] ?? readout.date)}`;
-  ctx.fillText(line, 48, phase === 'hook' ? 278 : 344);
+  ctx.fillText(line, 48, phase === 'hook' ? 198 : 246);
 }
 
 function drawVerdict(ctx: Ctx, currency: string, readout: FrameReadout, appear: number): void {
@@ -539,19 +539,19 @@ function drawVerdict(ctx: Ctx, currency: string, readout: FrameReadout, appear: 
     { text: `${formatPercent(readout.drop)} max drop`, color: readout.drop < -0.005 ? DOWN : '#d5dbe6' },
   ];
   const maxWidth = WIDTH - 96;
-  let size = 46;
+  let size = 30;
   const widthAt = (px: number) => {
     ctx.font = `600 ${px}px Geist, sans-serif`;
     return parts.reduce((sum, part) => sum + ctx.measureText(part.text).width, 0);
   };
-  while (size > 30 && widthAt(size) > maxWidth) size -= 1;
+  while (size > 20 && widthAt(size) > maxWidth) size -= 1;
   ctx.save();
   ctx.globalAlpha = appear;
   ctx.font = `600 ${size}px Geist, sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   let x = 48;
-  const y = 352;
+  const y = 276;
   for (const part of parts) {
     ctx.fillStyle = part.color;
     ctx.fillText(part.text, x, y);
@@ -561,19 +561,20 @@ function drawVerdict(ctx: Ctx, currency: string, readout: FrameReadout, appear: 
 }
 
 function drawTitle(ctx: Ctx, ticker: string, name: string, maxWidth: number): void {
-  let size = 60;
-  while (size > 28 && titleWidth(ctx, ticker, name, size) > maxWidth) size -= 1;
+  let size = 38;
+  while (size > 24 && titleWidth(ctx, ticker, name, size) > maxWidth) size -= 1;
+  const nameSize = Math.max(16, Math.round(size * 0.68));
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.font = `600 ${size}px Geist, sans-serif`;
   ctx.fillStyle = INK;
-  ctx.fillText(ticker, 48, 72);
+  ctx.fillText(ticker, 48, 58);
   const tickerWidth = ctx.measureText(ticker).width;
-  ctx.font = `500 ${size}px Geist, sans-serif`;
+  ctx.font = `500 ${nameSize}px Geist, sans-serif`;
   ctx.fillStyle = '#d5dbe6';
   const label = `  ${name}`;
   const room = Math.max(0, maxWidth - tickerWidth);
-  ctx.fillText(ctx.measureText(label).width <= room ? label : trimText(ctx, label, room), 48 + tickerWidth, 72);
+  ctx.fillText(ctx.measureText(label).width <= room ? label : trimText(ctx, label, room), 48 + tickerWidth, 58);
 }
 
 interface RangeCard {
@@ -636,17 +637,17 @@ function drawCard(ctx: Ctx, x: number, y: number, w: number, h: number, appear: 
   paintCardShell(ctx, x, y + slide, w, h, card.accent);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = '500 18px "Geist Mono", monospace';
+  ctx.font = '500 16px "Geist Mono", monospace';
   ctx.fillStyle = '#c5cedd';
-  fillTracked(ctx, card.title, x + 20, y + slide + 38, 1.2);
-  const valueSize = fitLineSize(ctx, card.value, w - 40, 42, 30, '600');
+  fillTracked(ctx, card.title, x + 20, y + slide + 36, 1.2);
+  const valueSize = fitLineSize(ctx, card.value, w - 40, 34, 24, '600');
   ctx.font = `600 ${valueSize}px Geist, sans-serif`;
   ctx.fillStyle = card.color;
-  drawTabular(ctx, card.value, x + 20, y + slide + 104);
-  const footSize = fitMonoSize(ctx, card.foot, w - 40, 30, 26);
+  drawTabular(ctx, card.value, x + 20, y + slide + 96);
+  const footSize = fitMonoSize(ctx, card.foot, w - 40, 20, 16);
   ctx.font = `500 ${footSize}px "Geist Mono", monospace`;
   ctx.fillStyle = '#e8edf4';
-  ctx.fillText(card.foot, x + 20, y + slide + 168);
+  ctx.fillText(card.foot, x + 20, y + slide + 148);
   ctx.restore();
 }
 
@@ -658,11 +659,11 @@ function drawRangeCard(ctx: Ctx, x: number, y: number, w: number, h: number, app
   paintCardShell(ctx, x, y + slide, w, h, 'rgba(255,255,255,0.7)');
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = '500 18px "Geist Mono", monospace';
+  ctx.font = '500 16px "Geist Mono", monospace';
   ctx.fillStyle = '#c5cedd';
-  fillTracked(ctx, card.title, x + 20, y + slide + 38, 1.2);
-  drawRangeRow(ctx, x + 20, y + slide + 96, w - 40, 'HIGH', card.high, card.highMeta, UP);
-  drawRangeRow(ctx, x + 20, y + slide + 164, w - 40, 'LOW', card.low, card.lowMeta, DOWN);
+  fillTracked(ctx, card.title, x + 20, y + slide + 36, 1.2);
+  drawRangeRow(ctx, x + 20, y + slide + 92, w - 40, 'HIGH', card.high, card.highMeta, UP);
+  drawRangeRow(ctx, x + 20, y + slide + 152, w - 40, 'LOW', card.low, card.lowMeta, DOWN);
   ctx.restore();
 }
 
@@ -676,20 +677,20 @@ function drawRangeRow(
   meta: string,
   color: string,
 ): void {
-  ctx.font = '600 18px "Geist Mono", monospace';
+  ctx.font = '600 15px "Geist Mono", monospace';
   ctx.fillStyle = color;
   ctx.textAlign = 'left';
   ctx.fillText(label, x, baseline);
-  ctx.font = '500 26px "Geist Mono", monospace';
+  ctx.font = '500 16px "Geist Mono", monospace';
   ctx.fillStyle = '#e8edf4';
   ctx.textAlign = 'right';
   const metaWidth = ctx.measureText(meta).width;
   ctx.fillText(meta, x + width, baseline);
-  const priceSize = fitLineSize(ctx, price, Math.max(80, width - 78 - metaWidth - 16), 34, 26, '600');
+  const priceSize = fitLineSize(ctx, price, Math.max(80, width - 64 - metaWidth - 16), 28, 20, '600');
   ctx.font = `600 ${priceSize}px Geist, sans-serif`;
   ctx.fillStyle = INK;
   ctx.textAlign = 'left';
-  drawTabular(ctx, price, x + 78, baseline);
+  drawTabular(ctx, price, x + 64, baseline);
 }
 
 function paintCardShell(ctx: Ctx, x: number, y: number, w: number, h: number, accent: string): void {
@@ -704,12 +705,12 @@ function paintCardShell(ctx: Ctx, x: number, y: number, w: number, h: number, ac
 }
 
 function drawDeltaPill(ctx: Ctx, text: string, x: number, baseline: number, up: boolean): void {
-  ctx.font = '600 28px Geist, sans-serif';
-  const width = measureTabular(ctx, text) + 32;
-  const height = 46;
-  const top = baseline - 32;
+  ctx.font = '600 18px Geist, sans-serif';
+  const width = measureTabular(ctx, text) + 24;
+  const height = 30;
+  const top = baseline - 22;
   ctx.save();
-  roundRect(ctx, x, top, width, height, 23);
+  roundRect(ctx, x, top, width, height, 15);
   ctx.fillStyle = up ? 'rgba(61,220,151,0.18)' : 'rgba(255,93,108,0.2)';
   ctx.fill();
   ctx.strokeStyle = up ? 'rgba(61,220,151,0.7)' : 'rgba(255,93,108,0.75)';
@@ -718,7 +719,7 @@ function drawDeltaPill(ctx: Ctx, text: string, x: number, baseline: number, up: 
   ctx.fillStyle = up ? '#b6ffd8' : '#ffc7ce';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  drawTabular(ctx, text, x + 16, baseline);
+  drawTabular(ctx, text, x + 12, baseline);
   ctx.restore();
 }
 
@@ -1961,9 +1962,10 @@ function measureTabular(ctx: Ctx, text: string): number {
 }
 
 function titleWidth(ctx: Ctx, ticker: string, name: string, size: number): number {
+  const nameSize = Math.max(16, Math.round(size * 0.68));
   ctx.font = `600 ${size}px Geist, sans-serif`;
   const tickerWidth = ctx.measureText(ticker).width;
-  ctx.font = `500 ${size}px Geist, sans-serif`;
+  ctx.font = `500 ${nameSize}px Geist, sans-serif`;
   return tickerWidth + ctx.measureText(`  ${name}`).width;
 }
 

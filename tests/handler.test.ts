@@ -125,12 +125,17 @@ describe('chart relay', () => {
     expect(response.headers.get('Cache-Control')).toBe('no-store');
   });
 
-  it('serves a cache hit without calling Yahoo or the rate limiter', async () => {
+  it('calls Yahoo once per symbol and session date, then serves the shared cache', async () => {
     const cache = memoryCache();
-    const first = harness({ cache, body: '{"ok":1}' });
-    await first.run('/v1/chart/0700.HK?d=2026-10-19');
+    const miss = harness({ cache, body: '{"ok":1}' });
+    const created = await miss.run('/v1/chart/700.HK?d=2026-10-19');
+    expect(created.status).toBe(200);
+    expect(created.headers.get('Cache-Control')).toBe('public, max-age=81360');
+    expect(miss.calls).toEqual([{ url: yahooChartUrl('0700.HK'), userAgent: BROWSER_USER_AGENT }]);
+    expect(cache.keys()).toEqual(['https://stock-animation.cache/v2/chart/0700.HK?d=2026-10-19']);
+
     let limited = false;
-    const second = harness({
+    const hit = harness({
       cache,
       body: '{"ok":2}',
       limit: () => {
@@ -138,11 +143,20 @@ describe('chart relay', () => {
         return false;
       },
     });
-    const hit = await second.run('/v1/chart/0700.HK?d=2026-10-19');
-    expect(await hit.text()).toBe('{"ok":1}');
-    expect(second.calls).toHaveLength(0);
+    const cached = await hit.run('/v1/chart/0700.HK?d=2026-10-19');
+    expect(await cached.text()).toBe('{"ok":1}');
+    expect(cached.headers.get('Cache-Control')).toBe('public, max-age=81360');
+    expect(hit.calls).toHaveLength(0);
     expect(limited).toBe(false);
-    expect(cache.keys()).toEqual(['https://stock-animation.cache/v2/chart/0700.HK?d=2026-10-19']);
+
+    const otherDay = harness({ cache, body: '{"ok":3}' });
+    const next = await otherDay.run('/v1/chart/0700.HK?d=2026-10-18');
+    expect(await next.text()).toBe('{"ok":3}');
+    expect(otherDay.calls).toHaveLength(1);
+    expect(cache.keys().sort()).toEqual([
+      'https://stock-animation.cache/v2/chart/0700.HK?d=2026-10-18',
+      'https://stock-animation.cache/v2/chart/0700.HK?d=2026-10-19',
+    ]);
   });
 
   it('stops before Yahoo when the miss limit is exhausted', async () => {

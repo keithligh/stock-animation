@@ -3,8 +3,10 @@
   --bg: #07080b;
   --text: #f4f6f8;
   --muted: #c5cedd;
+  --quiet: #9aa3b5;
   --line: #2a3142;
   --field: #b7c0d0;
+  --control: 38px;
   font-family: Geist, sans-serif;
 }
 
@@ -29,28 +31,27 @@ body {
 }
 
 .app {
-  width: min(1600px, calc(100% - 80px));
+  width: min(1640px, calc(100% - 40px));
   margin: 0 auto;
-  padding: 20px 0 16px;
+  padding: 12px 0 14px;
 }
 
 .bar {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: start;
-  column-gap: 28px;
-  margin-bottom: 16px;
+  align-items: center;
+  column-gap: 16px;
+  margin-bottom: 10px;
 }
 
 .mark {
   margin: 0;
-  padding-top: 16px;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   line-height: 1;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--quiet);
 }
 
 .ask {
@@ -58,10 +59,10 @@ body {
   flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  column-gap: 18px;
-  row-gap: 8px;
+  column-gap: 12px;
+  row-gap: 6px;
   min-width: 0;
-  min-height: 48px;
+  min-height: var(--control);
 }
 
 form {
@@ -69,16 +70,16 @@ form {
   flex: 0 0 auto;
   justify-content: center;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .cue {
   margin: 0;
   flex: 0 1 auto;
   min-width: 0;
-  max-width: 28rem;
+  max-width: 26rem;
   color: var(--muted);
-  font: 500 14px/1.35 Geist, sans-serif;
+  font: 500 13px/1.35 Geist, sans-serif;
   text-align: left;
 }
 
@@ -94,19 +95,19 @@ label {
 }
 
 input {
-  width: 320px;
-  height: 48px;
+  width: 232px;
+  height: var(--control);
   background: #141820;
   color: var(--text);
   border: 1px solid var(--field);
-  border-radius: 10px;
-  padding: 0 14px;
-  font: 500 16px "Geist Mono", ui-monospace, monospace;
+  border-radius: 8px;
+  padding: 0 10px;
+  font: 500 14px "Geist Mono", ui-monospace, monospace;
   caret-color: #f4f6f8;
 }
 
 input::placeholder {
-  color: #c5cedd;
+  color: #9aa6ba;
 }
 
 input:hover {
@@ -114,13 +115,13 @@ input:hover {
 }
 
 button {
-  height: 48px;
+  height: var(--control);
   background: #f4f7fb;
   color: #0c0e13;
   border: 0;
-  border-radius: 10px;
-  padding: 0 18px;
-  font: 600 15px Geist, sans-serif;
+  border-radius: 8px;
+  padding: 0 12px;
+  font: 600 13px Geist, sans-serif;
   cursor: pointer;
 }
 
@@ -136,13 +137,12 @@ button:active {
   display: flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  min-width: 280px;
-  min-height: 48px;
+  gap: 6px;
+  min-width: 196px;
+  min-height: var(--control);
 }
 
 #replay {
-  min-width: 96px;
   background: transparent;
   color: var(--text);
   border: 1px solid var(--field);
@@ -157,27 +157,19 @@ button:active {
   background: #10141c;
 }
 
-#download {
-  min-width: 168px;
-}
-
-body[data-state='played'] #download {
-  box-shadow: 0 0 0 4px rgba(61, 220, 151, 0.55);
-}
-
 canvas {
   width: 100%;
   height: auto;
   display: block;
-  border-radius: 16px;
+  border-radius: 10px;
   background: #0c0e13;
 }
 
 #status {
-  min-height: 1.4em;
-  margin: 10px 2px 0;
+  min-height: 1.35em;
+  margin: 8px 2px 0;
   color: var(--muted);
-  font: 500 14px/1.45 "Geist Mono", ui-monospace, monospace;
+  font: 500 12px/1.4 "Geist Mono", ui-monospace, monospace;
 }
 
 body[data-state='played'] #status {
@@ -192,8 +184,33 @@ body[data-state='encoding'] #status {
   color: #f7f8fb;
 }
 
+.colophon {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 6px 2px 0;
+  color: var(--quiet);
+  font: 400 12px/1.4 Geist, sans-serif;
+}
+
+.colophon a {
+  color: inherit;
+  text-decoration-color: color-mix(in srgb, var(--quiet) 55%, transparent);
+  text-underline-offset: 2px;
+}
+
+.colophon a:hover {
+  color: var(--muted);
+}
+
+.colophon .sep {
+  color: #6e788c;
+}
+
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+.colophon a:focus-visible {
   outline: 2px solid #f4f7fb;
   outline-offset: 2px;
 }
@@ -204,23 +221,20 @@ input:focus-visible {
 
 @media (max-width: 720px) {
   .app {
-    width: min(1600px, calc(100% - 28px));
-    padding-top: 20px;
+    width: min(1640px, calc(100% - 24px));
+    padding-top: 12px;
   }
 
   .bar {
     grid-template-columns: 1fr;
-    row-gap: 12px;
-  }
-
-  .mark {
-    padding-top: 0;
+    row-gap: 8px;
+    align-items: start;
   }
 
   .ask,
   form,
   .save {
-    align-items: flex-start;
+    align-items: center;
     justify-content: flex-start;
   }
 
@@ -228,11 +242,7 @@ input:focus-visible {
     min-width: 0;
   }
 
-  .cue {
-    text-align: left;
-  }
-
   input {
-    width: min(320px, 62vw);
+    width: min(232px, 100%);
   }
 }
