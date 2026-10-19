@@ -1,0 +1,25 @@
+name = "stock-animation-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-19"
+workers_dev = true
+
+# Workers Cache sits in front of the Worker. Hits never invoke it.
+# The daily `d` query param is part of the cache key.
+[cache]
+enabled = true
+
+[vars]
+# Comma-separated browser origins allowed to read the relay.
+# Replace with the app Worker's origin before deploy.
+ALLOWED_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173"
+
+# 60 misses per minute per key. Keys used: `ip:<addr>` and `global`.
+# Cloudflare enforces this per location. namespace_id is account-unique;
+# change it if 1001 is already used.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+
+  [ratelimits.simple]
+  limit = 60
+  period = 60

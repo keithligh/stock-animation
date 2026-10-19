@@ -1,0 +1,18 @@
+{
+  "name": "stock-animation",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev -c workers/api/wrangler.toml --port 8787",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p workers/api/tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p workers/api/tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261006.1",
+    "@types/node": "^22.19.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.69.0"
+  }
+}
