@@ -364,6 +364,10 @@ export function formatPercent(fraction: number, digits = 1): string {
   return `${(0).toFixed(digits)}%`;
 }
 
+export function drawdownCalloutText(depth: number, peakDate: string, troughDate: string): string {
+  return `${formatPercent(depth)} ${inPhrase(peakDate, troughDate)}`;
+}
+
 export function formatRoundedPercent(fraction: number): string {
   const pct = Math.round(fraction * 100);
   if (pct > 0) return `+${pct}%`;

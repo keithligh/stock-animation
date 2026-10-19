@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { percentChange } from '../shared/model';
-import { ESTABLISH_END, FRAME_COUNT, HOOK_END, PLAY_END, REWIND_END, buildAnimation, priceAt } from '../src/render';
+import { formatPercent, formatPrice } from '../src/insights';
+import { ESTABLISH_END, FRAME_COUNT, HOOK_END, PLAY_END, REWIND_END, buildAnimation, frameReading, priceAt } from '../src/render';
 
 const rising = {
   displaySymbol: 'NVDA.US',
@@ -102,6 +103,34 @@ describe('price animation', () => {
     expect(flat.logMix[FRAME_COUNT - 1]).toBe(0);
     expect(flat.yMin[FRAME_COUNT - 1] ?? 0).toBeLessThan(Math.min(...flat.prices));
     expect(flat.yMax[FRAME_COUNT - 1] ?? 0).toBeGreaterThan(Math.max(...flat.prices));
+  });
+
+  it('uses one revealed price for the hero, the cards, and a drawdown callout', () => {
+    const crash = buildAnimation({
+      displaySymbol: 'NVDA.US',
+      name: 'NVIDIA',
+      currency: 'USD',
+      bars: Array.from({ length: 160 }, (_, index) => ({
+        date: new Date(Date.UTC(2024, 0, 1 + index)).toISOString().slice(0, 10),
+        close: index < 40 ? 80 : index < 100 ? 80 - (index - 40) * 0.9 : 26 + (index - 100) * 0.4,
+      })),
+    });
+    let sawCallout = false;
+    for (let frame = 0; frame < FRAME_COUNT; frame += 1) {
+      const reading = frameReading(crash, frame);
+      expect(reading.cagrTo).toBe(reading.price);
+      expect(reading.price).toBe(priceAt(crash, frame));
+      expect(formatPrice('USD', reading.cagrTo)).toBe(formatPrice('USD', reading.price));
+      expect(reading.low).toBeLessThanOrEqual(reading.price + 1e-6);
+      expect(reading.high).toBeGreaterThanOrEqual(reading.price - 1e-6);
+      expect(reading.low).toBeLessThanOrEqual(reading.dropTrough + 1e-6);
+      if (reading.calloutDrop !== null) {
+        sawCallout = true;
+        expect(reading.calloutDrop).toBe(reading.drop);
+        expect(reading.calloutText?.startsWith(formatPercent(reading.drop))).toBe(true);
+      }
+    }
+    expect(sawCallout).toBe(true);
   });
 
   it('rejects a single close', () => {
