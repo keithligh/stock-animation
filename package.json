@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"wrangler dev -c workers/api/wrangler.toml --port 8787 --ip 127.0.0.1\"",
+    "dev": "concurrently -n web,api -c cyan,magenta \"vite\" \"wrangler dev --port 8787 --ip 127.0.0.1\"",
     "build": "tsc -p tsconfig.json --noEmit && tsc -p workers/api/tsconfig.json --noEmit && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p workers/api/tsconfig.json --noEmit",
     "test": "vitest run"

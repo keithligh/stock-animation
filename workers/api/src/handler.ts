@@ -34,7 +34,7 @@ export interface HandlerDeps {
 
 /**
  * Thin Yahoo pass-through. The body is streamed and never parsed.
- * Workers Cache (see wrangler.toml) stores responses from Cache-Control.
+ * Workers Cache (see the root wrangler.toml) stores responses from Cache-Control.
  * The injected cache covers local dev, where that front door is not running.
  */
 export async function handleChartRequest(
@@ -46,45 +46,46 @@ export async function handleChartRequest(
   const url = new URL(request.url);
   const origin = request.headers.get('Origin');
   const allowed = allowedOrigins(env);
+  const pageOrigin = url.origin;
 
-  if (origin && !allowed.includes(origin)) {
+  if (!requestOriginAllowed(origin, pageOrigin, allowed)) {
     return json({ error: 'origin_not_allowed' }, 403, 'no-store', null);
   }
   if (request.method === 'OPTIONS') {
-    return cors(new Response(null, { status: 204 }), origin, allowed, 'no-store');
+    return cors(new Response(null, { status: 204 }), origin, pageOrigin, allowed, 'no-store');
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') {
-    return json({ error: 'method_not_allowed' }, 405, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'method_not_allowed' }, 405, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
 
   const match = url.pathname.match(/^\/v1\/chart\/([^/]+)$/);
-  if (!match?.[1]) return json({ error: 'not_found' }, 404, 'no-store', originHeader(origin, allowed));
+  if (!match?.[1]) return json({ error: 'not_found' }, 404, 'no-store', originHeader(origin, pageOrigin, allowed));
 
   let rawSymbol: string;
   try {
     rawSymbol = decodeURIComponent(match[1]);
   } catch {
-    return json({ error: 'invalid_symbol' }, 400, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'invalid_symbol' }, 400, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
   const mapped = mapRelaySymbol(rawSymbol);
-  if (!mapped) return json({ error: 'invalid_symbol' }, 400, 'no-store', originHeader(origin, allowed));
+  if (!mapped) return json({ error: 'invalid_symbol' }, 400, 'no-store', originHeader(origin, pageOrigin, allowed));
 
   const unexpected = [...url.searchParams.keys()].filter((key) => key !== 'd');
   if (unexpected.length > 0 || !url.searchParams.has('d')) {
-    return json({ error: 'invalid_session' }, 400, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'invalid_session' }, 400, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
   const sessionDate = url.searchParams.get('d') ?? '';
   if (!isAcceptableSessionDate(mapped.market, sessionDate, deps.now())) {
-    return json({ error: 'invalid_session' }, 400, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'invalid_session' }, 400, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
 
   const cacheKey = new Request(`https://stock-animation.cache/v2/chart/${mapped.yahoo}?d=${sessionDate}`);
   const cached = await deps.cache.match(cacheKey);
-  if (cached) return cors(cached, origin, allowed, null);
+  if (cached) return cors(cached, origin, pageOrigin, allowed, null);
 
   const ip = request.headers.get('CF-Connecting-IP') ?? 'local';
   if (!(await allow(deps, env, `ip:${ip}`)) || !(await allow(deps, env, 'global'))) {
-    return json({ error: 'rate_limited' }, 429, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'rate_limited' }, 429, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
 
   const upstream = await deps.fetch(yahooChartUrl(mapped.yahoo), {
@@ -97,23 +98,23 @@ export async function handleChartRequest(
   if (upstream.status === 404) {
     const response = passthrough(upstream, 404, `public, max-age=${DAY_SECONDS}`);
     store(ctx, deps.cache, cacheKey, response);
-    return cors(response, origin, allowed, null);
+    return cors(response, origin, pageOrigin, allowed, null);
   }
   if (upstream.status === 429 || upstream.status >= 500) {
-    return json({ error: 'upstream' }, 503, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'upstream' }, 503, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
   if (!upstream.ok) {
-    return json({ error: 'upstream' }, 503, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'upstream' }, 503, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
   const contentType = upstream.headers.get('Content-Type') ?? '';
   if (!contentType.toLowerCase().includes('json')) {
-    return json({ error: 'upstream' }, 503, 'no-store', originHeader(origin, allowed));
+    return json({ error: 'upstream' }, 503, 'no-store', originHeader(origin, pageOrigin, allowed));
   }
 
   const maxAge = cacheMaxAgeSeconds(mapped.market, deps.now());
   const response = passthrough(upstream, 200, `public, max-age=${maxAge}`);
   store(ctx, deps.cache, cacheKey, response);
-  return cors(response, origin, allowed, null);
+  return cors(response, origin, pageOrigin, allowed, null);
 }
 
 function passthrough(upstream: Response, status: number, cacheControl: string): Response {
@@ -148,14 +149,19 @@ function allowedOrigins(env: Env): string[] {
     .filter((origin) => origin.length > 0);
 }
 
-function originHeader(requestOrigin: string | null, allowed: string[]): string | null {
-  if (requestOrigin && allowed.includes(requestOrigin)) return requestOrigin;
+function requestOriginAllowed(requestOrigin: string | null, pageOrigin: string, allowed: string[]): boolean {
+  if (!requestOrigin || requestOrigin === pageOrigin) return true;
+  return allowed.includes(requestOrigin);
+}
+
+function originHeader(requestOrigin: string | null, pageOrigin: string, allowed: string[]): string | null {
+  if (requestOrigin && requestOriginAllowed(requestOrigin, pageOrigin, allowed)) return requestOrigin;
   return allowed[0] ?? null;
 }
 
-function cors(response: Response, requestOrigin: string | null, allowed: string[], cacheControl: string | null): Response {
+function cors(response: Response, requestOrigin: string | null, pageOrigin: string, allowed: string[], cacheControl: string | null): Response {
   const headers = new Headers(response.headers);
-  const allow = originHeader(requestOrigin, allowed);
+  const allow = originHeader(requestOrigin, pageOrigin, allowed);
   if (allow) headers.set('Access-Control-Allow-Origin', allow);
   headers.set('Vary', 'Origin');
   headers.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');

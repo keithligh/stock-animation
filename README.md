@@ -5,8 +5,8 @@ Enter a ticker. The page plays five years of that stock's share price, then down
 ```bash
 npm install
 npm test
-npm run dev    # site on :5173, Yahoo relay on :8787
-npm run build
+npm run dev    # site on :5173; the page calls the same-origin /v1 relay
+npx wrangler deploy
 ```
 
-Yahoo sends no CORS header, so the page reads `GET /v1/chart/:sym?d=YYYY-MM-DD` from the worker in `workers/api`. Deploy that worker with `npx wrangler deploy -c workers/api/wrangler.toml`. The site is the static `dist/` from `npm run build`.
+`npx wrangler deploy` from the repo root builds the site and deploys one Cloudflare Worker. That Worker serves the static app and the Yahoo relay at `GET /v1/chart/:symbol?d=YYYY-MM-DD`. The page fetches that path on the same origin. During `npm run dev`, Vite proxies `/v1` to the Worker on port 8787.

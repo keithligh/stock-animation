@@ -162,6 +162,14 @@ describe('chart relay', () => {
     expect(ok.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
     expect(ok.headers.get('Vary')).toBe('Origin');
   });
+
+  it('allows the page origin even when that host is not on the allow list', async () => {
+    const api = harness();
+    const response = await api.run('/v1/chart/NVDA.US?d=2026-10-16', { Origin: 'https://api.test' });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Access-Control-Allow-Origin')).toBe('https://api.test');
+    expect(api.calls).toHaveLength(1);
+  });
 });
 
 describe('in-memory rate limiter', () => {

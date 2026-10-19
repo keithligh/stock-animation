@@ -1,5 +1,5 @@
-name = "stock-animation-api"
-main = "src/index.ts"
+name = "stock-animation"
+main = "workers/api/src/index.ts"
 compatibility_date = "2026-10-19"
 workers_dev = true
 
@@ -8,9 +8,21 @@ workers_dev = true
 [cache]
 enabled = true
 
+# `npx wrangler deploy` builds the static app, then uploads this Worker.
+[build]
+command = "npm run build"
+watch_dir = "workers/api/src"
+
+# One Worker: static app plus the /v1 Yahoo relay.
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "none"
+run_worker_first = ["/v1/*"]
+
 [vars]
-# Comma-separated browser origins allowed to read the relay.
-# Replace with the app Worker's origin before deploy.
+# Comma-separated browser origins allowed to read the relay cross-origin.
+# Same-origin requests, including the deployed app, are allowed without being listed.
 ALLOWED_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173"
 
 # 60 misses per minute per key. Keys used: `ip:<addr>` and `global`.

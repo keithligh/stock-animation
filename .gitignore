@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .wrangler/
+review/after/*.mp4
 .dev.vars
 *.log
 .DS_Store
