@@ -3,6 +3,7 @@ import {
   CALLOUT_FRAMES,
   ESTABLISH_END,
   FRAME_COUNT,
+  HOOK_END,
   LEAD_FRAMES,
   damp,
   detectEvents,
@@ -156,11 +157,12 @@ describe('callout schedule', () => {
 });
 
 describe('timeline', () => {
-  it('holds the answer, rewinds, then dwells on the biggest move', () => {
+  it('holds the start, then dwells on the biggest move', () => {
     const count = 400;
     const quiet = playheadSeries(count, []);
     const warped = playheadSeries(count, [200]);
-    expect(quiet[0]).toBe(count - 1);
+    expect(quiet[0]).toBe(0);
+    expect(quiet[HOOK_END - 1]).toBe(0);
     expect(quiet[ESTABLISH_END]).toBe(0);
     expect(quiet[FRAME_COUNT - 1]).toBe(count - 1);
 

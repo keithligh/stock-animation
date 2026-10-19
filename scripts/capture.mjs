@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -8,7 +9,9 @@ const outDir = path.resolve(process.argv[4] ?? '/tmp/stock-frames');
 await mkdir(outDir, { recursive: true });
 
 const browser = await puppeteer.launch({
-  executablePath: '/usr/local/bin/google-chrome',
+  executablePath:
+    process.env.CHROME_PATH ??
+    ['/usr/local/bin/google-chrome', '/usr/bin/google-chrome'].find((candidate) => existsSync(candidate)),
   headless: true,
   downloadBehavior: { policy: 'allow', downloadPath: outDir },
   args: [
@@ -32,12 +35,16 @@ client.on('Browser.downloadWillBegin', (event) => {
 client.on('Browser.downloadProgress', (event) => {
   if (event.state !== 'inProgress') console.log('download', event.state, event.receivedBytes);
 });
-await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 2 });
+await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 1 });
 page.setDefaultTimeout(540_000);
+const base = process.env.CAPTURE_BASE ?? 'http://127.0.0.1:5173/';
 
 try {
-  await page.goto('http://127.0.0.1:5173/', { waitUntil: 'networkidle0' });
+  await page.goto(base, { waitUntil: 'networkidle0' });
   await page.evaluate(() => document.fonts.ready);
+  if (ticker === 'NVDA') {
+    await page.screenshot({ path: path.join(outDir, 'empty-page.png') });
+  }
   await page.$eval('#ticker', (input, value) => {
     input.value = value;
   }, ticker);
@@ -62,7 +69,14 @@ try {
     await page.evaluate((index) => window.__anim?.seek(index), frame);
     await saveCanvas(page, path.join(outDir, `${ticker}-${name}.png`));
   }
+  await page.evaluate(() => window.__anim?.finish());
   await page.screenshot({ path: path.join(outDir, `${ticker}-page.png`) });
+  if (ticker === 'NVDA') {
+    for (const width of [1280, 1920]) {
+      await page.setViewport({ width, height: width === 1920 ? 1080 : 860, deviceScaleFactor: 1 });
+      await page.screenshot({ path: path.join(outDir, `${ticker}-page-${width}.png`) });
+    }
+  }
   console.log('frames', status);
 
   if (mode === 'mp4') {

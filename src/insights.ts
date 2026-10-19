@@ -1,13 +1,13 @@
 export const FPS = 60;
 /** 30 seconds at 60 fps. */
 export const FRAME_COUNT = FPS * 30;
-/** Answer title over the faint full line. */
+/** Ticker and the starting close. The ending stays off this beat. */
 export const HOOK_END = FPS * 2;
-/** Rewind back to the first close. */
-export const REWIND_END = HOOK_END + Math.round(FPS * 1.5);
-/** Hold on the ticker, the start date, and the starting share price. */
-export const ESTABLISH_END = REWIND_END + FPS;
-/** Pull-back end card. */
+/** Open axis, still on the first close. */
+export const REWIND_END = HOOK_END + Math.round(FPS * 0.5);
+/** The line leaves the start. */
+export const ESTABLISH_END = REWIND_END + Math.round(FPS * 0.5);
+/** Full-path verdict. */
 export const PLAY_END = FRAME_COUNT - FPS * 3;
 
 export const LEAD_FRAMES = Math.round(FPS * 0.5);
@@ -228,17 +228,8 @@ export function playheadSeries(count: number, slowAt: readonly number[]): Float6
   const prefix = new Float64Array(weights.length + 1);
   for (let i = 0; i < weights.length; i += 1) prefix[i + 1] = (prefix[i] ?? 0) + (weights[i] ?? 1);
   const playSpan = Math.max(1, PLAY_END - ESTABLISH_END - 1);
-  const rewindSpan = Math.max(1, REWIND_END - HOOK_END - 1);
   for (let frame = 0; frame < FRAME_COUNT; frame += 1) {
-    if (frame < HOOK_END) {
-      reveal[frame] = last;
-      continue;
-    }
-    if (frame < REWIND_END) {
-      const u = (frame - HOOK_END) / rewindSpan;
-      reveal[frame] = last * (1 - easeInOut(u));
-      continue;
-    }
+    // The hook asks from the first close. The answer arrives only as the line travels.
     if (frame < ESTABLISH_END) {
       reveal[frame] = 0;
       continue;
@@ -574,7 +565,7 @@ function toCallout(event: MarketEvent, start: number, end: number, arrive: numbe
 }
 
 function frameWhen(series: Float64Array, index: number): number {
-  // The hook holds the last close, so arrival is the first play frame that reaches the bar.
+  // Arrival is the first traveling frame that reaches the bar. The hook stays on the open.
   let lo = ESTABLISH_END;
   let hi = Math.max(ESTABLISH_END, series.length - 1);
   if ((series[lo] ?? 0) + 1e-6 >= index) return lo;

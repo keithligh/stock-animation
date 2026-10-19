@@ -10,10 +10,12 @@ import {
   REWIND_END,
   RIGHT_PAD_RATIO,
   buildAnimation,
+  framePhase,
   frameReadout,
   indexToX,
   placeMarkerBoxes,
   priceAt,
+  verdictText,
   type Animation,
 } from '../src/render';
 
@@ -30,21 +32,19 @@ const rising = {
 describe('price animation', () => {
   const animation = buildAnimation(rising);
 
-  it('opens on the answer, rewinds to the start, then plays out to the last close', () => {
+  it('opens on the start, then plays out to the last close', () => {
     const last = 100 + 39 * 3;
-    expect(priceAt(animation, 0)).toBe(last);
-    expect(priceAt(animation, HOOK_END - 1)).toBe(last);
+    expect(priceAt(animation, 0)).toBe(100);
+    expect(priceAt(animation, HOOK_END - 1)).toBe(100);
     expect(priceAt(animation, REWIND_END)).toBe(100);
-    expect(priceAt(animation, ESTABLISH_END)).toBe(100);
+    expect(priceAt(animation, ESTABLISH_END - 1)).toBe(100);
     expect(priceAt(animation, FRAME_COUNT - 1)).toBe(last);
     expect(percentChange(last, 100)).toBeCloseTo(1.17);
-
-    let rewind = animation.reveal[HOOK_END] ?? 0;
-    for (let frame = HOOK_END; frame < REWIND_END; frame += 1) {
-      const reveal = animation.reveal[frame] ?? 0;
-      expect(reveal).toBeLessThanOrEqual(rewind + 1e-6);
-      rewind = reveal;
-    }
+    expect(framePhase(0)).toBe('hook');
+    expect(framePhase(HOOK_END)).toBe('hook');
+    expect(framePhase(ESTABLISH_END)).toBe('travel');
+    expect(framePhase(PLAY_END)).toBe('verdict');
+    expect(framePhase(FRAME_COUNT - 1)).toBe('verdict');
 
     let play = -1;
     for (let frame = ESTABLISH_END; frame < FRAME_COUNT; frame += 1) {
@@ -158,11 +158,26 @@ describe('price animation', () => {
     }
     expect(sawDrawdown).toBe(true);
     const final = frameReadout(animation, FRAME_COUNT - 1);
+    expect(frameReadout(animation, 0).price).toBe(frameReadout(animation, 0).open);
+    expect(verdictText(animation.currency, final)).toBe(
+      `$${final.open.toFixed(2)} → $${final.price.toFixed(2)} · ${final.cagrText} · ${formatPercent(final.drop)} max drop`,
+    );
     expect(final.cagrText.endsWith('/yr')).toBe(true);
     expect(final.years).toBeGreaterThan(0.4);
     const plain = final.open === 0 ? 0 : final.price / final.open - 1;
     expect(final.cagr).toBeCloseTo((final.price / final.open) ** (1 / final.years) - 1);
     expect(Math.abs(final.cagr - plain)).toBeGreaterThan(0.05);
+  });
+
+  it('keeps an open future to the right of the playhead until the end', () => {
+    const frame = ESTABLISH_END + Math.floor((PLAY_END - ESTABLISH_END) * 0.35);
+    const reveal = animation.reveal[frame] ?? 0;
+    const right = animation.windowRight[frame] ?? 0;
+    expect(animation.reveal[72]).toBe(0);
+    expect(animation.windowRight[72] ?? 0).toBeLessThan(39);
+    expect(right).toBeGreaterThan(reveal + 1);
+    expect((right - reveal) / Math.max(right, 1)).toBeGreaterThan(0.18);
+    expect(animation.windowRight[FRAME_COUNT - 1]).toBeCloseTo(39);
   });
 
   it('keeps about 9% of the plot clear to the right of the endpoint', () => {
@@ -228,6 +243,94 @@ describe('price animation', () => {
     expect(parkedBox.y).toBeGreaterThanOrEqual(6);
     expect(parkedBox.x + parkedBox.w).toBeLessThanOrEqual(794);
     expect(parkedBox.y + parkedBox.h).toBeLessThanOrEqual(494);
+  });
+
+  it('keeps a wide start label and a peak beside NOW inside the plot', () => {
+    const bounds = { x: 180, y: 20, w: 1500, h: 560 };
+    const start = placeMarkerBoxes(
+      [{ kind: 'start', ax: 230, ay: 500, w: 340, h: 32 }],
+      [{ x1: 180, y1: 500, x2: 1500, y2: 500 }],
+      bounds,
+    );
+    const startBox = start[0];
+    expect(startBox).not.toBeNull();
+    if (startBox) {
+      expect(startBox.x).toBeGreaterThanOrEqual(bounds.x);
+      expect(startBox.x + startBox.w).toBeLessThanOrEqual(bounds.x + bounds.w);
+      expect(startBox.y + startBox.h < 494 || startBox.y > 506).toBe(true);
+    }
+
+    const pair = placeMarkerBoxes(
+      [
+        { kind: 'now', ax: 1520, ay: 120, w: 260, h: 32 },
+        { kind: 'peak', ax: 1460, ay: 64, w: 280, h: 32 },
+      ],
+      [{ x1: 200, y1: 480, x2: 1520, y2: 120 }],
+      { x: 160, y: 16, w: 1560, h: 560 },
+    );
+    expect(pair[0]).not.toBeNull();
+    expect(pair[1]).not.toBeNull();
+    expect(boxesOverlap(pair[0], pair[1])).toBe(false);
+  });
+
+  it('keeps START readable on a chart whose low sits near the open', () => {
+    const bounds = { x: 220, y: 426, w: 1608, h: 528 };
+    const line = 913;
+    const boxes = placeMarkerBoxes(
+      [
+        { kind: 'now', ax: 1683, ay: 563, w: 289, h: 32 },
+        { kind: 'peak', ax: 1674, ay: 518, w: 302, h: 32 },
+        { kind: 'low', ax: 536, ay: 934, w: 276, h: 32 },
+        { kind: 'start', ax: 252, ay: line, w: 302, h: 32 },
+      ],
+      [
+        { x1: 220, y1: line, x2: 1828, y2: line },
+        { x1: 252, y1: line, x2: 400, y2: 890 },
+        { x1: 400, y1: 890, x2: 536, y2: 934 },
+        { x1: 536, y1: 934, x2: 760, y2: 860 },
+        { x1: 760, y1: 860, x2: 1674, y2: 518 },
+        { x1: 1674, y1: 518, x2: 1683, y2: 563 },
+      ],
+      bounds,
+    );
+    expect(boxes.every((box) => box !== null)).toBe(true);
+    const low = boxes[2];
+    const start = boxes[3];
+    if (!low || !start) return;
+    expect(boxesOverlap(start, low)).toBe(false);
+    expect(low.x > 252 + 8 || low.x + low.w < 252 - 8).toBe(true);
+    expect(start.y + start.h <= line - 18 || start.y >= line + 18).toBe(true);
+    expect(start.x).toBeGreaterThanOrEqual(bounds.x);
+    expect(start.y).toBeGreaterThanOrEqual(bounds.y);
+    expect(start.x + start.w).toBeLessThanOrEqual(bounds.x + bounds.w);
+    expect(start.y + start.h).toBeLessThanOrEqual(bounds.y + bounds.h);
+  });
+
+  it('floats START off the open-price line when the path returns to it', () => {
+    const bounds = { x: 220, y: 426, w: 1608, h: 528 };
+    const line = 698;
+    const boxes = placeMarkerBoxes(
+      [
+        { kind: 'now', ax: 1082, ay: 857, w: 276, h: 32 },
+        { kind: 'peak', ax: 348, ay: 507, w: 289, h: 32 },
+        { kind: 'low', ax: 1068, ay: 873, w: 276, h: 32 },
+        { kind: 'start', ax: 252, ay: line, w: 302, h: 32 },
+      ],
+      [
+        { x1: 220, y1: line, x2: 1828, y2: line },
+        { x1: 252, y1: line, x2: 348, y2: 507 },
+        { x1: 348, y1: 507, x2: 620, y2: line + 6 },
+        { x1: 620, y1: line + 6, x2: 1082, y2: 857 },
+      ],
+      bounds,
+    );
+    const start = boxes[3];
+    expect(start).not.toBeNull();
+    if (!start) return;
+    expect(start.y >= line + 22 || start.y + start.h <= line - 22).toBe(true);
+    expect(boxesOverlap(start, boxes[0])).toBe(false);
+    expect(boxesOverlap(start, boxes[1])).toBe(false);
+    expect(boxesOverlap(start, boxes[2])).toBe(false);
   });
 
   it('rejects a single close', () => {

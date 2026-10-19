@@ -92,7 +92,7 @@ export function parseYahooChart(payload: unknown, sessionDate: string): ParsedSe
     if (date > sessionDate) continue;
     byDate.set(date, close);
   }
-  if (byDate.size === 0) throw new ParseError('Yahoo chart has no completed sessions');
+  if (byDate.size === 0) throw new ParseError('Yahoo returned no prices for that date.');
 
   const bars = [...byDate.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

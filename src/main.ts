@@ -6,8 +6,9 @@ import '@fontsource/geist-mono/latin-500.css';
 import { parseYahooChart } from '../shared/parse';
 import { lastCompletedSession } from '../shared/session';
 import { canonicalizeTicker, mapRelaySymbol } from '../shared/symbols';
+import { formatMonthYear } from './insights';
 import { exportAnimation } from './export';
-import { buildAnimation, drawFrame, FRAME_COUNT, type Animation } from './render';
+import { buildAnimation, drawFrame, drawLoading, drawPoster, FRAME_COUNT, type Animation } from './render';
 
 const form = document.querySelector<HTMLFormElement>('#form');
 const tickerInput = document.querySelector<HTMLInputElement>('#ticker');
@@ -38,9 +39,11 @@ let loadAbort: AbortController | null = null;
 // Download stays hidden until the current ticker has played through to the last frame.
 // Loading another ticker clears the stage and hides the button again.
 saveButton.hidden = true;
+let readyLine = 'Type a ticker and press Play.';
 
+drawPoster(context);
 void document.fonts.ready.then(() => {
-  if (!animation && !playing) drawBlank();
+  if (!animation && !playing && document.body.dataset.state !== 'loading') drawPoster(context);
 });
 
 form.addEventListener('submit', (event) => {
@@ -71,14 +74,15 @@ window.__anim = {
     playing = false;
     drawFrame(context, animation, frame);
   },
+  finish() {
+    if (!animation) return;
+    playing = false;
+    drawFrame(context, animation, FRAME_COUNT - 1);
+    document.body.dataset.state = 'played';
+    saveButton.hidden = false;
+    saveButton.textContent = 'Download MP4';
+  },
 };
-
-function drawBlank(): void {
-  context.setTransform(stage.width / 1920, 0, 0, stage.height / 1080, 0, 0);
-  context.fillStyle = '#07080b';
-  context.fillRect(0, 0, 1920, 1080);
-  context.setTransform(1, 0, 0, 1, 0, 0);
-}
 
 async function loadTicker(raw: string): Promise<void> {
   const display = canonicalizeTicker(raw);
@@ -88,6 +92,7 @@ async function loadTicker(raw: string): Promise<void> {
     document.body.dataset.state = 'error';
     return;
   }
+  exportAbort?.abort();
   loadAbort?.abort();
   const abort = new AbortController();
   loadAbort = abort;
@@ -95,9 +100,9 @@ async function loadTicker(raw: string): Promise<void> {
   playing = false;
   animation = null;
   saveButton.hidden = true;
-  saveButton.disabled = true;
+  saveButton.textContent = 'Download MP4';
   document.body.dataset.state = 'loading';
-  drawBlank();
+  drawLoading(context, display);
   setStatus(`Loading ${display}…`);
   try {
     const session = lastCompletedSession(mapped.market, new Date());
@@ -113,9 +118,10 @@ async function loadTicker(raw: string): Promise<void> {
     if (abort.signal.aborted) return;
     animation = next;
     saveButton.hidden = true;
-    saveButton.disabled = true;
+    saveButton.textContent = 'Download MP4';
     document.body.dataset.state = 'ready';
-    setStatus(`${labelFor(next.symbol)} · ${next.name}`);
+    readyLine = `${labelFor(next.symbol)} · ${next.name} · ${formatMonthYear(next.dates[0] ?? '')} – ${formatMonthYear(next.dates[next.dates.length - 1] ?? '')}`;
+    setStatus(readyLine);
     startPlayback();
   } catch (error) {
     if (abort.signal.aborted) return;
@@ -135,7 +141,7 @@ async function fetchChart(symbol: string, session: string, signal: AbortSignal):
     });
     if (!response.ok) {
       const body = (await response.json().catch(() => null)) as { error?: string } | null;
-      throw new Error(body?.error ? `Relay: ${body.error}` : `Relay returned ${response.status}`);
+      throw new Error(friendlyRelay(body?.error, response.status));
     }
     return (await response.json()) as unknown;
   } catch (error) {
@@ -168,7 +174,8 @@ function tick(now: number, gen: number): void {
     playing = false;
     document.body.dataset.state = 'played';
     saveButton.hidden = false;
-    saveButton.disabled = false;
+    saveButton.textContent = 'Download MP4';
+    setStatus(readyLine);
     return;
   }
   requestAnimationFrame((next) => tick(next, gen));
@@ -177,10 +184,14 @@ function tick(now: number, gen: number): void {
 async function download(current: Animation): Promise<void> {
   const abort = new AbortController();
   exportAbort = abort;
-  saveButton.textContent = 'Cancel';
+  document.body.dataset.state = 'encoding';
+  saveButton.hidden = false;
+  saveButton.textContent = '0% · Cancel';
   playing = false;
   try {
     const result = await exportAnimation(current, (frame, total) => {
+      const pct = Math.min(100, Math.round((frame / total) * 100));
+      saveButton.textContent = `${pct}% · Cancel`;
       setStatus(`Encoding ${frame.toLocaleString('en-US')} / ${total.toLocaleString('en-US')}`);
     }, abort.signal);
     const name = `${labelFor(current.symbol).replace(/\./g, '-')}-price.${result.extension}`;
@@ -192,8 +203,10 @@ async function download(current: Animation): Promise<void> {
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+    document.body.dataset.state = 'played';
     setStatus(`Saved ${name}`);
   } catch (error) {
+    document.body.dataset.state = 'played';
     if (error instanceof DOMException && error.name === 'AbortError') {
       setStatus('Export cancelled.');
     } else {
@@ -202,11 +215,24 @@ async function download(current: Animation): Promise<void> {
   } finally {
     exportAbort = null;
     saveButton.textContent = 'Download MP4';
+    if (document.body.dataset.state === 'encoding') {
+      document.body.dataset.state = 'played';
+      setStatus(readyLine);
+    }
   }
 }
 
 function setStatus(text: string): void {
   status.textContent = text;
+}
+
+function friendlyRelay(code: string | undefined, statusCode: number): string {
+  if (code === 'invalid_symbol') return 'Use a ticker like 0700.HK or NVDA.';
+  if (code === 'invalid_session') return 'That price date was not accepted. Try again.';
+  if (code === 'rate_limited') return 'Too many requests. Wait a minute and try again.';
+  if (code === 'upstream') return 'Yahoo Finance did not answer. Try again.';
+  if (code === 'origin_not_allowed') return 'This page is not allowed to load prices.';
+  return `Could not load that ticker (${statusCode}).`;
 }
 
 function labelFor(symbol: string): string {
@@ -220,6 +246,7 @@ declare global {
       readonly hookFrame: number;
       readonly calloutFrame: number;
       seek(frame: number): void;
+      finish(): void;
     };
   }
 }

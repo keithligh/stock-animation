@@ -12,13 +12,15 @@
         <p class="mark">Stock animation</p>
         <form id="form">
           <label for="ticker">Ticker</label>
-          <input id="ticker" name="ticker" autocomplete="off" spellcheck="false" placeholder="0700.HK or NVDA" />
+          <input id="ticker" name="ticker" autocomplete="off" spellcheck="false" placeholder="NVDA, AAPL, 0700.HK" />
           <button id="play" type="submit">Play</button>
         </form>
-        <button id="download" type="button" hidden>Download MP4</button>
+        <div class="save">
+          <button id="download" type="button" hidden>Download MP4</button>
+        </div>
       </header>
       <canvas id="stage" width="1920" height="1080"></canvas>
-      <p id="status" role="status">Enter a ticker to play the price animation.</p>
+      <p id="status" role="status">Type a ticker and press Play.</p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
