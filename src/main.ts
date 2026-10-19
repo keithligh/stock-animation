@@ -55,6 +55,12 @@ window.__anim = {
   get frameCount() {
     return FRAME_COUNT;
   },
+  get hookFrame() {
+    return animation?.hookFrame ?? 72;
+  },
+  get calloutFrame() {
+    return animation?.calloutFrame ?? 0;
+  },
   seek(frame: number) {
     if (!animation) return;
     playing = false;
@@ -99,6 +105,7 @@ async function loadTicker(raw: string): Promise<void> {
       name: series.name,
       currency: series.currency,
       bars: series.bars,
+      dividends: series.dividends,
     });
     if (abort.signal.aborted) return;
     animation = next;
@@ -198,6 +205,8 @@ declare global {
   interface Window {
     __anim?: {
       readonly frameCount: number;
+      readonly hookFrame: number;
+      readonly calloutFrame: number;
       seek(frame: number): void;
     };
   }

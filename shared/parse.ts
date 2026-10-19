@@ -6,6 +6,12 @@ export interface Bar {
   close: number;
 }
 
+export interface Dividend {
+  date: string;
+  /** Cash per split-adjusted share, as Yahoo reports it alongside `events=split`. */
+  amount: number;
+}
+
 export interface ParsedSeries {
   displaySymbol: string;
   yahooSymbol: string;
@@ -13,6 +19,7 @@ export interface ParsedSeries {
   currency: string;
   timeZone: string;
   bars: Bar[];
+  dividends: Dividend[];
   source: 'yahoo';
 }
 
@@ -46,12 +53,15 @@ interface YahooResult {
     quote?: Array<{ close?: Array<number | null> }>;
     adjclose?: Array<{ adjclose?: Array<number | null> }>;
   };
+  events?: {
+    dividends?: Record<string, { amount?: number; date?: number }>;
+  };
 }
 
 /**
  * Yahoo chart JSON → daily closes.
  * Uses `indicators.quote[0].close` (split-adjusted when `events=split`), never `adjclose`.
- * Null closes are removed. Bars after `sessionDate` (exchange-local) are removed.
+ * Null closes are removed. Bars and dividends after `sessionDate` (exchange-local) are removed.
  */
 export function parseYahooChart(payload: unknown, sessionDate: string): ParsedSeries {
   if (!isIsoDate(sessionDate)) throw new ParseError('session date must be YYYY-MM-DD');
@@ -95,8 +105,26 @@ export function parseYahooChart(payload: unknown, sessionDate: string): ParsedSe
     currency: result.meta?.currency?.trim() || (market === 'HK' ? 'HKD' : 'USD'),
     timeZone,
     bars,
+    dividends: parseDividends(result, timeZone, sessionDate),
     source: 'yahoo',
   };
+}
+
+function parseDividends(result: YahooResult, timeZone: string, sessionDate: string): Dividend[] {
+  const raw = result.events?.dividends;
+  if (!raw) return [];
+  const byDate = new Map<string, number>();
+  for (const entry of Object.values(raw)) {
+    const amount = entry?.amount;
+    const stamp = entry?.date;
+    if (amount === undefined || stamp === undefined || !Number.isFinite(amount) || amount <= 0) continue;
+    const date = timestampToExchangeDate(stamp, timeZone);
+    if (date > sessionDate) continue;
+    byDate.set(date, (byDate.get(date) ?? 0) + amount);
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([date, amount]) => ({ date, amount }));
 }
 
 /** `date,close` rows. A header is optional. Every valid row is kept. */

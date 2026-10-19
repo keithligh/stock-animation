@@ -45,6 +45,34 @@ describe('Yahoo parser', () => {
     expect(series.yahooSymbol).toBe('NVDA');
     expect(series.name).toBe('NVIDIA Corporation');
     expect(series.currency).toBe('USD');
+    expect(series.dividends).toEqual([]);
+  });
+
+  it('keeps split-adjusted dividend amounts on or before the session', () => {
+    const payload = yahoo();
+    const result = payload.chart.result?.[0];
+    const withDividends = {
+      ...payload,
+      chart: {
+        ...payload.chart,
+        result: result
+          ? [
+              {
+                ...result,
+                events: {
+                  dividends: {
+                    a: { amount: 0.25, date: JUNE3_OPEN },
+                    b: { amount: 1, date: JUNE3_OPEN + 86_400 * 5 },
+                    c: { amount: 0, date: JUNE3_OPEN },
+                  },
+                },
+              },
+            ]
+          : null,
+      },
+    };
+    const series = parseYahooChart(withDividends, '2024-06-03');
+    expect(series.dividends).toEqual([{ date: '2024-06-03', amount: 0.25 }]);
   });
 
   it('drops null closes instead of substituting adjclose', () => {

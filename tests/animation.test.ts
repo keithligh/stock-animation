@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { percentChange } from '../shared/model';
-import { FRAME_COUNT, buildAnimation, priceAt } from '../src/render';
+import { ESTABLISH_END, FRAME_COUNT, HOOK_END, REWIND_END, buildAnimation, priceAt } from '../src/render';
 
 const rising = {
   displaySymbol: 'NVDA.US',
@@ -15,20 +15,28 @@ const rising = {
 describe('price animation', () => {
   const animation = buildAnimation(rising);
 
-  it('starts on the first close and finishes on the last', () => {
-    expect(priceAt(animation, 0)).toBe(100);
-    expect(priceAt(animation, FRAME_COUNT - 1)).toBe(100 + 39 * 3);
-    expect(percentChange(priceAt(animation, FRAME_COUNT - 1), 100)).toBeCloseTo(1.17);
-  });
+  it('opens on the answer, rewinds to the start, then plays out to the last close', () => {
+    const last = 100 + 39 * 3;
+    expect(priceAt(animation, 0)).toBe(last);
+    expect(priceAt(animation, HOOK_END - 1)).toBe(last);
+    expect(priceAt(animation, REWIND_END)).toBe(100);
+    expect(priceAt(animation, ESTABLISH_END)).toBe(100);
+    expect(priceAt(animation, FRAME_COUNT - 1)).toBe(last);
+    expect(percentChange(last, 100)).toBeCloseTo(1.17);
 
-  it('moves forward every frame until the hold', () => {
-    let previous = -1;
-    for (let frame = 0; frame < FRAME_COUNT; frame += 1) {
+    let rewind = animation.reveal[HOOK_END] ?? 0;
+    for (let frame = HOOK_END; frame < REWIND_END; frame += 1) {
       const reveal = animation.reveal[frame] ?? 0;
-      expect(reveal).toBeGreaterThanOrEqual(previous - 1e-9);
-      previous = reveal;
+      expect(reveal).toBeLessThanOrEqual(rewind + 1e-6);
+      rewind = reveal;
     }
-    expect(animation.reveal[FRAME_COUNT - 1]).toBeCloseTo(39);
+
+    let play = -1;
+    for (let frame = ESTABLISH_END; frame < FRAME_COUNT; frame += 1) {
+      const reveal = animation.reveal[frame] ?? 0;
+      expect(reveal).toBeGreaterThanOrEqual(play - 1e-6);
+      play = reveal;
+    }
   });
 
   it('keeps the visible price inside a smooth y range', () => {
@@ -59,6 +67,8 @@ describe('price animation', () => {
     expect(animation.yMin[0] ?? 0).toBeLessThan(100);
     expect(animation.yMax[0] ?? 0).toBeGreaterThan(217);
     expect(animation.yearsLabel).toBe('in 1 year');
+    expect(Math.max(...animation.zoom)).toBeLessThanOrEqual(1.036 + 1e-3);
+    expect(Math.min(...animation.zoom)).toBeGreaterThanOrEqual(0.978 - 1e-3);
 
     const longer = buildAnimation({
       displaySymbol: 'NVDA.US',

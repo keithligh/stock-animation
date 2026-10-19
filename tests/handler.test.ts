@@ -79,6 +79,7 @@ describe('chart relay', () => {
     const usResponse = await us.run('/v1/chart/NVDA.US?d=2026-10-16');
     expect(await usResponse.text()).toBe('{not-json');
     expect(us.calls[0]?.url).toBe(yahooChartUrl('NVDA'));
+    expect(yahooChartUrl('NVDA')).toContain('events=div%7Csplit');
   });
 
   it('maps 700.HK and BRK.B.US onto Yahoo symbols', async () => {
@@ -141,7 +142,7 @@ describe('chart relay', () => {
     expect(await hit.text()).toBe('{"ok":1}');
     expect(second.calls).toHaveLength(0);
     expect(limited).toBe(false);
-    expect(cache.keys()).toEqual(['https://stock-animation.cache/v1/chart/0700.HK?d=2026-10-19']);
+    expect(cache.keys()).toEqual(['https://stock-animation.cache/v2/chart/0700.HK?d=2026-10-19']);
   });
 
   it('stops before Yahoo when the miss limit is exhausted', async () => {

@@ -21,7 +21,7 @@ const browser = await puppeteer.launch({
 });
 const page = await browser.newPage();
 await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 2 });
-page.setDefaultTimeout(360_000);
+page.setDefaultTimeout(540_000);
 
 try {
   await page.goto('http://127.0.0.1:5173/', { waitUntil: 'networkidle0' });
@@ -38,8 +38,11 @@ try {
   if (state !== 'ready') throw new Error(`Load failed: ${status}`);
 
   const frameCount = await page.evaluate(() => window.__anim?.frameCount ?? 0);
+  const hookFrame = await page.evaluate(() => window.__anim?.hookFrame ?? 72);
+  const calloutFrame = await page.evaluate(() => window.__anim?.calloutFrame ?? 0);
   const points = [
-    ['start', 0],
+    ['hook', hookFrame],
+    ['callout', calloutFrame],
     ['middle', Math.floor(frameCount / 2)],
     ['end', frameCount - 1],
   ];
@@ -93,7 +96,7 @@ async function saveCanvas(page, file) {
 }
 
 async function waitForExport(page, directory, before, readyStatus) {
-  const deadline = Date.now() + 360_000;
+  const deadline = Date.now() + 540_000;
   let last = '';
   let stuck = 0;
   while (Date.now() < deadline) {
@@ -106,7 +109,10 @@ async function waitForExport(page, directory, before, readyStatus) {
       stuck += 1;
     }
     const file = await findNewMedia(directory, before);
-    if (file && status.startsWith('Saved ')) return `${status} -> ${file}`;
+    if (status.startsWith('Saved ')) {
+      const named = path.join(directory, status.slice('Saved '.length).trim());
+      return `${status} -> ${file ?? named}`;
+    }
     const encoding = status.startsWith('Encoding') || status.startsWith('Loading') || status === readyStatus;
     if (!encoding && stuck > 6) throw new Error(status || 'export failed');
     await new Promise((resolve) => setTimeout(resolve, 500));

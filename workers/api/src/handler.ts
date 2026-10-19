@@ -78,7 +78,7 @@ export async function handleChartRequest(
     return json({ error: 'invalid_session' }, 400, 'no-store', originHeader(origin, allowed));
   }
 
-  const cacheKey = new Request(`https://stock-animation.cache/v1/chart/${mapped.yahoo}?d=${sessionDate}`);
+  const cacheKey = new Request(`https://stock-animation.cache/v2/chart/${mapped.yahoo}?d=${sessionDate}`);
   const cached = await deps.cache.match(cacheKey);
   if (cached) return cors(cached, origin, allowed, null);
 
