@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -11,5 +11,5 @@
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": false
   },
-  "include": ["shared/**/*.ts", "tests/**/*.ts", "workers/api/src/handler.ts"]
+  "include": ["shared/**/*.ts", "src/**/*.ts", "tests/**/*.ts", "workers/api/src/handler.ts"]
 }

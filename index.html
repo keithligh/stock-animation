@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stock animation</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body data-state="empty">
+    <div class="app">
+      <header class="bar">
+        <p class="mark">Stock animation</p>
+        <form id="form">
+          <label for="ticker">Ticker</label>
+          <input id="ticker" name="ticker" autocomplete="off" spellcheck="false" placeholder="0700.HK or NVDA" />
+          <button id="play" type="submit">Play</button>
+        </form>
+        <button id="download" type="button" disabled>Download MP4</button>
+      </header>
+      <canvas id="stage" width="1920" height="1080"></canvas>
+      <p id="status" role="status">Enter a ticker to play the price animation.</p>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
