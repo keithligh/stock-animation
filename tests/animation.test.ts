@@ -47,11 +47,17 @@ describe('price animation', () => {
     }
   });
 
-  it('ends on the full range after the pull-out', () => {
+  it('keeps one full-history scale for the whole film', () => {
     expect(animation.lowIndex).toBe(0);
     expect(animation.highIndex).toBe(39);
-    expect(animation.windowLeft[FRAME_COUNT - 1]).toBe(0);
+    expect(animation.windowLeft[0]).toBe(0);
+    expect(animation.windowRight[0]).toBeCloseTo(39);
+    expect(animation.windowLeft[400]).toBe(0);
     expect(animation.windowRight[FRAME_COUNT - 1]).toBeCloseTo(39);
+    expect(animation.yMin[0]).toBe(animation.yMin[FRAME_COUNT - 1]);
+    expect(animation.yMax[0]).toBe(animation.yMax[FRAME_COUNT - 1]);
+    expect(animation.yMin[0] ?? 0).toBeLessThan(100);
+    expect(animation.yMax[0] ?? 0).toBeGreaterThan(217);
     expect(animation.yearsLabel).toBe('in 1 year');
 
     const longer = buildAnimation({
@@ -63,11 +69,12 @@ describe('price animation', () => {
         close: 50 + Math.sin(index / 12) * 8 + index * 0.2,
       })),
     });
-    const mid = (longer.windowRight[400] ?? 0) - (longer.windowLeft[400] ?? 0);
-    const end = (longer.windowRight[FRAME_COUNT - 1] ?? 0) - (longer.windowLeft[FRAME_COUNT - 1] ?? 0);
-    expect(mid).toBeGreaterThan(40);
-    expect(mid).toBeLessThan(180);
-    expect(end).toBeGreaterThan(390);
+    const low = Math.min(...longer.prices);
+    const high = Math.max(...longer.prices);
+    expect(longer.windowLeft[400]).toBe(0);
+    expect(longer.windowRight[400]).toBeCloseTo(399);
+    expect(longer.yMin[0] ?? 0).toBeLessThan(low);
+    expect(longer.yMax[0] ?? 0).toBeGreaterThan(high);
   });
 
   it('rejects a single close', () => {
