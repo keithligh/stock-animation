@@ -70,10 +70,10 @@ describe('event detection', () => {
     const events = detectEvents(prices, dates, [], 'USD');
     const drawdown = events.find((event) => event.kind === 'drawdown');
     expect(drawdown?.anchor).toBe(3);
-    expect(drawdown?.text).toMatch(/^−46% in /);
-    expect(events.some((event) => event.kind === 'up' && event.text.startsWith('+67%'))).toBe(true);
+    expect(drawdown?.text).toMatch(/^−\$60\.00 · −46% in /);
+    expect(events.some((event) => event.kind === 'up' && event.text.includes('+67%') && event.text.startsWith('+$60.00'))).toBe(true);
     expect(events.some((event) => event.kind === 'down' && event.index === 3)).toBe(true);
-    expect(events.some((event) => event.kind === 'recovery' && event.text.startsWith('Recovered peak'))).toBe(true);
+    expect(events.some((event) => event.kind === 'recovery' && event.text.startsWith('Recovered $130.00'))).toBe(true);
     expect(events.filter((event) => event.kind === 'recovery')).toHaveLength(1);
   });
 
@@ -83,10 +83,10 @@ describe('event detection', () => {
     const events = detectEvents(prices, dates, [], 'USD');
     expect(events.some((event) => event.kind === 'drawdown')).toBe(false);
     const recovery = events.find((event) => event.kind === 'recovery');
-    expect(recovery?.text.startsWith('Back above $10,000 after')).toBe(true);
+    expect(recovery?.text.startsWith('Back above $100.00 after')).toBe(true);
   });
 
-  it('rolls dividends into a running total on the $10,000 and skips an empty list', () => {
+  it('rolls dividends into a per-share total and skips an empty list', () => {
     const prices = [100, 100, 100, 100];
     const dates = datesFrom('2024-01-02', 4);
     expect(detectEvents(prices, dates, [], 'USD').some((event) => event.kind === 'dividend')).toBe(false);
@@ -100,7 +100,7 @@ describe('event detection', () => {
       'USD',
     );
     const dividends = events.filter((event) => event.kind === 'dividend');
-    expect(dividends.map((event) => event.text)).toEqual(['Dividends $40', 'Dividends $100']);
+    expect(dividends.map((event) => event.text)).toEqual(['Dividends $0.40', 'Dividends $1.00']);
   });
 
   it('reads a calendar year return from the prior close', () => {

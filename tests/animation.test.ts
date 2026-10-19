@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { percentChange } from '../shared/model';
-import { ESTABLISH_END, FRAME_COUNT, HOOK_END, REWIND_END, buildAnimation, priceAt } from '../src/render';
+import { ESTABLISH_END, FRAME_COUNT, HOOK_END, PLAY_END, REWIND_END, buildAnimation, priceAt } from '../src/render';
 
 const rising = {
   displaySymbol: 'NVDA.US',
@@ -39,36 +39,32 @@ describe('price animation', () => {
     }
   });
 
-  it('keeps the visible price inside a smooth y range', () => {
-    let previousMin = animation.yMin[0] ?? 0;
-    let previousMax = animation.yMax[0] ?? 0;
-    for (let frame = 0; frame < FRAME_COUNT; frame += 30) {
+  it('keeps the visible price inside an eased y range', () => {
+    for (let frame = 0; frame < FRAME_COUNT; frame += 15) {
       const price = priceAt(animation, frame);
+      expect(animation.yMin[frame] ?? 0).toBeLessThanOrEqual(price + 1e-6);
+      expect(animation.yMax[frame] ?? 0).toBeGreaterThanOrEqual(price - 1e-6);
+    }
+    let previousMin = animation.yMin[ESTABLISH_END] ?? 0;
+    let previousMax = animation.yMax[ESTABLISH_END] ?? 0;
+    for (let frame = ESTABLISH_END; frame < PLAY_END; frame += 30) {
       const yMin = animation.yMin[frame] ?? 0;
       const yMax = animation.yMax[frame] ?? 0;
-      expect(yMin).toBeLessThanOrEqual(price);
-      expect(yMax).toBeGreaterThanOrEqual(price);
-      expect(Math.abs(yMin - previousMin)).toBeLessThan(40);
-      expect(Math.abs(yMax - previousMax)).toBeLessThan(40);
+      expect(Math.abs(yMin - previousMin)).toBeLessThan(30);
+      expect(Math.abs(yMax - previousMax)).toBeLessThan(30);
       previousMin = yMin;
       previousMax = yMax;
     }
   });
 
-  it('keeps one full-history scale for the whole film', () => {
+  it('frames the revealed window, then pulls out to a readable full history', () => {
     expect(animation.lowIndex).toBe(0);
     expect(animation.highIndex).toBe(39);
-    expect(animation.windowLeft[0]).toBe(0);
-    expect(animation.windowRight[0]).toBeCloseTo(39);
-    expect(animation.windowLeft[400]).toBe(0);
-    expect(animation.windowRight[FRAME_COUNT - 1]).toBeCloseTo(39);
-    expect(animation.yMin[0]).toBe(animation.yMin[FRAME_COUNT - 1]);
-    expect(animation.yMax[0]).toBe(animation.yMax[FRAME_COUNT - 1]);
-    expect(animation.yMin[0] ?? 0).toBeLessThan(100);
-    expect(animation.yMax[0] ?? 0).toBeGreaterThan(217);
     expect(animation.yearsLabel).toBe('in 1 year');
-    expect(Math.max(...animation.zoom)).toBeLessThanOrEqual(1.036 + 1e-3);
-    expect(Math.min(...animation.zoom)).toBeGreaterThanOrEqual(0.978 - 1e-3);
+    expect(animation.windowLeft[0]).toBe(0);
+    expect(animation.windowRight[FRAME_COUNT - 1]).toBeCloseTo(39);
+    expect(animation.yMin[FRAME_COUNT - 1] ?? 0).toBeLessThan(100);
+    expect(animation.yMax[FRAME_COUNT - 1] ?? 0).toBeGreaterThan(217);
 
     const longer = buildAnimation({
       displaySymbol: 'NVDA.US',
@@ -76,15 +72,36 @@ describe('price animation', () => {
       currency: 'USD',
       bars: Array.from({ length: 400 }, (_, index) => ({
         date: new Date(Date.UTC(2022, 0, 1 + index)).toISOString().slice(0, 10),
-        close: 50 + Math.sin(index / 12) * 8 + index * 0.2,
+        close: index < 80 ? 20 + Math.sin(index / 5) : 20 + (index - 80) * 0.8,
       })),
     });
+    let early = ESTABLISH_END;
+    while (early < PLAY_END && (longer.reveal[early] ?? 0) < 40) early += 1;
+    const reveal = longer.reveal[early] ?? 0;
+    expect(longer.windowRight[early] ?? 0).toBeGreaterThanOrEqual(reveal - 0.2);
+    expect((longer.windowRight[early] ?? 0) - (longer.windowLeft[early] ?? 0)).toBeLessThan(200);
+    expect(longer.yMax[early] ?? 0).toBeLessThan(80);
+    expect(longer.logMix[early]).toBe(0);
+    expect(longer.windowLeft[FRAME_COUNT - 1]).toBe(0);
+    expect(longer.windowRight[FRAME_COUNT - 1]).toBeCloseTo(399);
+    expect(longer.logMix[FRAME_COUNT - 1]).toBe(1);
     const low = Math.min(...longer.prices);
     const high = Math.max(...longer.prices);
-    expect(longer.windowLeft[400]).toBe(0);
-    expect(longer.windowRight[400]).toBeCloseTo(399);
-    expect(longer.yMin[0] ?? 0).toBeLessThan(low);
-    expect(longer.yMax[0] ?? 0).toBeGreaterThan(high);
+    expect(longer.yMin[FRAME_COUNT - 1] ?? 0).toBeLessThan(low);
+    expect(longer.yMax[FRAME_COUNT - 1] ?? 0).toBeGreaterThan(high);
+
+    const flat = buildAnimation({
+      displaySymbol: 'FLAT.US',
+      name: 'Flat',
+      currency: 'USD',
+      bars: Array.from({ length: 80 }, (_, index) => ({
+        date: new Date(Date.UTC(2024, 0, 1 + index)).toISOString().slice(0, 10),
+        close: 50 + Math.sin(index / 9),
+      })),
+    });
+    expect(flat.logMix[FRAME_COUNT - 1]).toBe(0);
+    expect(flat.yMin[FRAME_COUNT - 1] ?? 0).toBeLessThan(Math.min(...flat.prices));
+    expect(flat.yMax[FRAME_COUNT - 1] ?? 0).toBeGreaterThan(Math.max(...flat.prices));
   });
 
   it('rejects a single close', () => {

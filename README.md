@@ -1,6 +1,6 @@
 # Stock animation
 
-Enter a ticker. The page plays what $10,000 became over five years of daily closes, then downloads an MP4 encoded in the browser (1920×1080, 60 fps, 30 seconds).
+Enter a ticker. The page plays five years of that stock's share price, then downloads an MP4 encoded in the browser (1920×1080, 60 fps, 30 seconds).
 
 ```bash
 npm install

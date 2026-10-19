@@ -5,14 +5,13 @@ export const FRAME_COUNT = FPS * 30;
 export const HOOK_END = FPS * 2;
 /** Rewind back to the first close. */
 export const REWIND_END = HOOK_END + Math.round(FPS * 1.5);
-/** Hold on the ticker, the start date, and $10,000. */
+/** Hold on the ticker, the start date, and the starting share price. */
 export const ESTABLISH_END = REWIND_END + FPS;
 /** Pull-back end card. */
 export const PLAY_END = FRAME_COUNT - FPS * 3;
 
 export const LEAD_FRAMES = Math.round(FPS * 0.5);
 export const CALLOUT_FRAMES = FPS * 2;
-export const START_VALUE = 10_000;
 
 const DWELL = 1.8;
 const DWELL_RADIUS = 18;
@@ -183,16 +182,16 @@ export function detectEvents(
     const peakPrice = prices[peak] ?? 0;
     const troughPrice = prices[trough] ?? 0;
     if (price >= peakPrice) {
-      pushDrawdown(events, prices, dates, peak, trough, i);
+      pushDrawdown(events, prices, dates, peak, trough, i, currency);
       peak = i;
       trough = i;
     } else if (price < troughPrice) {
       trough = i;
     }
   }
-  pushDrawdown(events, prices, dates, peak, trough, null);
+  pushDrawdown(events, prices, dates, peak, trough, null, currency);
   pushStartRecoveries(events, prices, dates, currency);
-  pushBiggestDays(events, prices, dates);
+  pushBiggestDays(events, prices, dates, currency);
   pushDividends(events, prices, dates, dividends, currency);
 
   events.sort((a, b) => a.index - b.index || a.priority - b.priority || b.score - a.score);
@@ -350,6 +349,13 @@ export function formatPrice(currency: string, value: number): string {
   return signedMoney(currency, value, body);
 }
 
+export function formatSignedPrice(currency: string, value: number): string {
+  const body = formatPrice(currency, Math.abs(value));
+  if (value > 0.000001) return `+${body}`;
+  if (value < -0.000001) return `−${body}`;
+  return body;
+}
+
 export function formatWhole(currency: string, value: number): string {
   const rounded = Math.round(value);
   const amount = Math.abs(rounded) < 1 ? 0 : Math.abs(rounded);
@@ -420,6 +426,7 @@ function pushDrawdown(
   peak: number,
   trough: number,
   recovery: number | null,
+  currency: string,
 ): void {
   if (trough === peak) return;
   const peakPrice = prices[peak] ?? 0;
@@ -434,7 +441,7 @@ function pushDrawdown(
     anchor: trough,
     priority: priorityFor('drawdown'),
     score: Math.abs(depth),
-    text: `${formatRoundedPercent(depth)} ${inPhrase(peakDate, troughDate)}`,
+    text: `${formatSignedPrice(currency, troughPrice - peakPrice)} · ${formatRoundedPercent(depth)} ${inPhrase(peakDate, troughDate)}`,
   });
   if (recovery === null) return;
   events.push({
@@ -443,7 +450,7 @@ function pushDrawdown(
     anchor: recovery,
     priority: priorityFor('recovery'),
     score: Math.abs(depth) * 0.9,
-    text: `Recovered peak ${afterPhrase(peakDate, dates[recovery] ?? troughDate)}`,
+    text: `Recovered ${formatPrice(currency, peakPrice)} ${afterPhrase(peakDate, dates[recovery] ?? troughDate)}`,
   });
 }
 
@@ -477,7 +484,7 @@ function pushStartRecoveries(
         anchor: i,
         priority: priorityFor('recovery'),
         score: Math.max(0.12, Math.abs(depth)),
-        text: `Back above ${formatWhole(currency, START_VALUE)} ${afterPhrase(from, to)}`,
+        text: `Back above ${formatPrice(currency, open)} ${afterPhrase(from, to)}`,
       });
     }
     below = -1;
@@ -485,7 +492,7 @@ function pushStartRecoveries(
   }
 }
 
-function pushBiggestDays(events: MarketEvent[], prices: readonly number[], dates: readonly string[]): void {
+function pushBiggestDays(events: MarketEvent[], prices: readonly number[], dates: readonly string[], currency: string): void {
   let upIndex = -1;
   let upChange = 0;
   let downIndex = -1;
@@ -511,7 +518,7 @@ function pushBiggestDays(events: MarketEvent[], prices: readonly number[], dates
       anchor: upIndex,
       priority: priorityFor('up'),
       score: upChange,
-      text: `${formatRoundedPercent(upChange)} · ${formatLongDate(dates[upIndex] ?? '')}`,
+      text: `${formatSignedPrice(currency, (prices[upIndex] ?? 0) - (prices[upIndex - 1] ?? 0))} · ${formatRoundedPercent(upChange)} · ${formatLongDate(dates[upIndex] ?? '')}`,
     });
   }
   if (downIndex >= 0) {
@@ -521,7 +528,7 @@ function pushBiggestDays(events: MarketEvent[], prices: readonly number[], dates
       anchor: downIndex,
       priority: priorityFor('down'),
       score: Math.abs(downChange),
-      text: `${formatRoundedPercent(downChange)} · ${formatLongDate(dates[downIndex] ?? '')}`,
+      text: `${formatSignedPrice(currency, (prices[downIndex] ?? 0) - (prices[downIndex - 1] ?? 0))} · ${formatRoundedPercent(downChange)} · ${formatLongDate(dates[downIndex] ?? '')}`,
     });
   }
 }
@@ -537,21 +544,20 @@ function pushDividends(
   const first = dates[0] ?? '';
   const last = dates[dates.length - 1] ?? '';
   if (open <= 0 || dividends.length === 0) return;
-  const shares = START_VALUE / open;
   let total = 0;
   const ordered = dividends.slice().sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
   for (const dividend of ordered) {
     if (!(dividend.amount > 0) || dividend.date < first || dividend.date > last) continue;
     const index = dates.findIndex((date) => date >= dividend.date);
     if (index < 0) continue;
-    total += shares * dividend.amount;
+    total += dividend.amount;
     events.push({
       kind: 'dividend',
       index,
       anchor: index,
       priority: priorityFor('dividend'),
       score: 0,
-      text: `Dividends ${formatCompact(currency, total)}`,
+      text: `Dividends ${formatPrice(currency, total)}`,
     });
   }
 }
