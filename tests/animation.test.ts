@@ -47,6 +47,29 @@ describe('price animation', () => {
     }
   });
 
+  it('ends on the full range after the pull-out', () => {
+    expect(animation.lowIndex).toBe(0);
+    expect(animation.highIndex).toBe(39);
+    expect(animation.windowLeft[FRAME_COUNT - 1]).toBe(0);
+    expect(animation.windowRight[FRAME_COUNT - 1]).toBeCloseTo(39);
+    expect(animation.yearsLabel).toBe('in 1 year');
+
+    const longer = buildAnimation({
+      displaySymbol: 'NVDA.US',
+      name: 'NVIDIA',
+      currency: 'USD',
+      bars: Array.from({ length: 400 }, (_, index) => ({
+        date: new Date(Date.UTC(2022, 0, 1 + index)).toISOString().slice(0, 10),
+        close: 50 + Math.sin(index / 12) * 8 + index * 0.2,
+      })),
+    });
+    const mid = (longer.windowRight[400] ?? 0) - (longer.windowLeft[400] ?? 0);
+    const end = (longer.windowRight[FRAME_COUNT - 1] ?? 0) - (longer.windowLeft[FRAME_COUNT - 1] ?? 0);
+    expect(mid).toBeGreaterThan(40);
+    expect(mid).toBeLessThan(180);
+    expect(end).toBeGreaterThan(390);
+  });
+
   it('rejects a single close', () => {
     expect(() =>
       buildAnimation({

@@ -1,12 +1,22 @@
 import { percentChange } from '../shared/model';
 
 export const FPS = 60;
-/** 15 seconds. Long enough to read, short enough to encode on a laptop. */
+/** 15 seconds. Draw, pull out to the full range, then hold the verdict. */
 export const FRAME_COUNT = FPS * 15;
-const HOLD_FRAMES = 78;
+
+const DRAW_END = 660;
+const PULL_END = 780;
+const START_VALUE = 10_000;
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
+const PLOT = { x: 236, y: 430, w: 1628, h: 566 };
+
+const UP = '#3DDC97';
+const DOWN = '#FF5D6C';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+
+type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D;
 
 export interface Animation {
   symbol: string;
@@ -14,23 +24,27 @@ export interface Animation {
   currency: string;
   dates: string[];
   prices: number[];
+  smooth: number[];
   reveal: Float64Array;
   yMin: Float64Array;
   yMax: Float64Array;
   windowLeft: Float64Array;
   windowRight: Float64Array;
+  highIndex: number;
+  lowIndex: number;
+  yearsLabel: string;
 }
 
-interface Plot {
+interface Point {
   x: number;
   y: number;
-  w: number;
-  h: number;
+  value: number;
 }
 
-const PLOT: Plot = { x: 88, y: 456, w: 1744, h: 508 };
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const;
+interface Run {
+  above: boolean;
+  points: Point[];
+}
 
 export function buildAnimation(input: {
   displaySymbol: string;
@@ -47,41 +61,69 @@ export function buildAnimation(input: {
   const prices = bars.map((bar) => bar.close);
   const dates = bars.map((bar) => bar.date);
   const count = prices.length;
+  const open = prices[0] ?? 0;
+  const smooth = gaussianSmooth(prices, count > 80 ? 4 : 1);
+  const highIndex = extremeIndex(prices, 'high');
+  const lowIndex = extremeIndex(prices, 'low');
+  pinExtreme(smooth, prices, highIndex);
+  pinExtreme(smooth, prices, lowIndex);
+
   const windowSize = chooseWindow(count);
   const reveal = new Float64Array(FRAME_COUNT);
   const yMin = new Float64Array(FRAME_COUNT);
   const yMax = new Float64Array(FRAME_COUNT);
   const windowLeft = new Float64Array(FRAME_COUNT);
   const windowRight = new Float64Array(FRAME_COUNT);
-
-  const first = windowFor(0, count, windowSize);
-  let left = first.left;
-  let right = first.right;
-  let lo = prices[0] ?? 0;
-  let hi = lo;
+  const full = paddedRange(Math.min(...prices), Math.max(...prices), open);
+  const opening = targetWindow(0, count, windowSize);
+  let left = opening.left;
+  let right = opening.right;
+  let lo = open;
+  let hi = open;
+  let snapLeft = left;
+  let snapRight = right;
+  let snapLo = lo;
+  let snapHi = hi;
 
   for (let frame = 0; frame < FRAME_COUNT; frame += 1) {
     const playhead = revealProgress(frame) * (count - 1);
     reveal[frame] = playhead;
-    const target = windowFor(playhead, count, windowSize);
-    left += (target.left - left) * 0.085;
-    right += (target.right - right) * 0.085;
-    if (playhead < left) left = playhead;
-    if (playhead > right) right = playhead;
+    const price = sample(prices, playhead);
+
+    if (frame <= DRAW_END) {
+      const target = targetWindow(playhead, count, windowSize);
+      left += (target.left - left) * 0.06;
+      right += (target.right - right) * 0.06;
+      ({ left, right } = containPlayhead(left, right, playhead, count));
+      const span = visibleRange(prices, left, playhead);
+      const pad = Math.max((span.max - span.min) * 0.16, Math.abs(span.max) * 0.03, 0.5);
+      const next = enforceSpan(lo, hi, span.min - pad, span.max + pad, price, Math.max(open * 0.08, 1));
+      lo = next.lo;
+      hi = next.hi;
+      if (frame === DRAW_END) {
+        snapLeft = left;
+        snapRight = right;
+        snapLo = lo;
+        snapHi = hi;
+      }
+    } else if (frame <= PULL_END) {
+      const u = smoothstep((frame - DRAW_END) / (PULL_END - DRAW_END));
+      left = snapLeft + (0 - snapLeft) * u;
+      right = snapRight + (count - 1 - snapRight) * u;
+      lo = snapLo + (full.lo - snapLo) * u;
+      hi = snapHi + (full.hi - snapHi) * u;
+      const next = enforceSpan(lo, hi, lo, hi, price, 1);
+      lo = next.lo;
+      hi = next.hi;
+    } else {
+      left = 0;
+      right = count - 1;
+      lo = full.lo;
+      hi = full.hi;
+    }
+
     windowLeft[frame] = left;
     windowRight[frame] = right;
-
-    const span = visibleRange(prices, left, playhead);
-    const pad = Math.max((span.max - span.min) * 0.22, Math.abs(span.max + span.min) * 0.01, 0.5);
-    const targetLo = span.min - pad;
-    const targetHi = span.max + pad;
-    lo = approach(lo, targetLo, targetLo < lo);
-    hi = approach(hi, targetHi, targetHi > hi);
-    if (hi - lo < pad) {
-      const mid = (hi + lo) / 2;
-      lo = mid - pad;
-      hi = mid + pad;
-    }
     yMin[frame] = lo;
     yMax[frame] = hi;
   }
@@ -92,11 +134,15 @@ export function buildAnimation(input: {
     currency: input.currency,
     dates,
     prices,
+    smooth,
     reveal,
     yMin,
     yMax,
     windowLeft,
     windowRight,
+    highIndex,
+    lowIndex,
+    yearsLabel: yearsPhrase(dates[0] ?? '', dates[dates.length - 1] ?? ''),
   };
 }
 
@@ -105,322 +151,499 @@ export function priceAt(animation: Animation, frame: number): number {
   return sample(animation.prices, index);
 }
 
-export function drawFrame(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  animation: Animation,
-  frame: number,
-): void {
+export function drawFrame(ctx: Ctx, animation: Animation, frame: number): void {
   const index = clampFrame(frame);
   const playhead = animation.reveal[index] ?? 0;
+  const open = animation.prices[0] ?? 0;
   const price = sample(animation.prices, playhead);
-  const open = animation.prices[0] ?? price;
+  const value = priceToValue(price, open);
   const left = animation.windowLeft[index] ?? 0;
   const right = animation.windowRight[index] ?? 1;
   const yMin = animation.yMin[index] ?? price;
   const yMax = animation.yMax[index] ?? price;
-  const fade = Math.min(1, frame / 18);
-  const above = price >= open;
+  const hold = index < PULL_END ? 0 : Math.min(1, (index - PULL_END) / 18);
   const canvas = ctx.canvas;
   ctx.setTransform(canvas.width / WIDTH, 0, 0, canvas.height / HEIGHT, 0, 0);
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
   ctx.clearRect(0, 0, WIDTH, HEIGHT);
 
-  const background = ctx.createRadialGradient(980, 420, 160, 960, 560, 1180);
-  background.addColorStop(0, '#161b24');
-  background.addColorStop(0.58, '#0c0e13');
+  const background = ctx.createRadialGradient(980, 460, 120, 960, 560, 1100);
+  background.addColorStop(0, '#141820');
+  background.addColorStop(0.62, '#0c0e13');
   background.addColorStop(1, '#07080b');
   ctx.fillStyle = background;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  drawType(ctx, animation, playhead, price, open, fade, above);
-  drawGrid(ctx, yMin, yMax);
-  drawBaseline(ctx, open, yMin, yMax, animation.currency);
-  const points = linePoints(animation.prices, playhead, left, right, yMin, yMax);
-  const tip = points[points.length - 1];
-  if (points.length > 1) {
-    drawArea(ctx, points, above);
-    drawLine(ctx, points, above);
+  drawIdentity(ctx, animation);
+  drawLiveValue(ctx, animation, value, price, playhead, 1 - hold);
+  if (hold > 0) drawVerdict(ctx, animation, hold);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(PLOT.x, PLOT.y, PLOT.w, PLOT.h);
+  ctx.clip();
+  drawGrid(ctx, yMin, yMax, open);
+  const points = collectPoints(animation, playhead, left, right, yMin, yMax);
+  const runs = splitRuns(points, START_VALUE);
+  const startY = yAt(open, yMin, yMax);
+  for (const run of runs) drawArea(ctx, run, startY);
+  for (const run of runs) drawRun(ctx, run);
+  drawStartLine(ctx, startY);
+  ctx.restore();
+
+  drawYLabels(ctx, yMin, yMax, open, animation.currency);
+  drawStartLabel(ctx, animation.currency, startY);
+  drawXLabels(ctx, animation.dates, left, right);
+  if (animation.highIndex !== animation.lowIndex) {
+    drawExtreme(ctx, animation, 'peak', playhead, left, right, yMin, yMax);
+    drawExtreme(ctx, animation, 'low', playhead, left, right, yMin, yMax);
   }
-  if (tip) drawTip(ctx, tip, shortSymbol(animation.symbol), animation.currency, price, fade);
-  drawMonths(ctx, animation.dates, left, right);
-  ctx.globalAlpha = 0.72;
-  ctx.font = '400 18px "Geist Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#8b93a3';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('Data: Yahoo Finance', WIDTH - 72, 1040);
+  const tip = points[points.length - 1];
+  if (tip) drawHead(ctx, tip);
   ctx.globalAlpha = 1;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
 
-function drawType(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  animation: Animation,
-  playhead: number,
-  price: number,
-  open: number,
-  fade: number,
-  above: boolean,
-): void {
+function drawIdentity(ctx: Ctx, animation: Animation): void {
+  const symbol = shortSymbol(animation.symbol);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.globalAlpha = 0.7;
-  ctx.font = '500 15px Geist, sans-serif';
-  ctx.fillStyle = '#9aa3b5';
-  ctx.fillText('STOCK ANIMATION', 88, 72);
-  ctx.globalAlpha = fade;
-  ctx.font = '500 22px Geist, sans-serif';
-  ctx.fillStyle = '#d5dbe6';
-  const title = `${shortSymbol(animation.symbol)}   ${animation.name}`;
-  ctx.fillText(trimText(ctx, title, 1100), 88, 128);
+  ctx.font = '600 48px Geist, sans-serif';
+  ctx.fillStyle = '#f4f7fb';
+  ctx.fillText(symbol, 72, 78);
+  ctx.font = '500 36px Geist, sans-serif';
+  ctx.fillStyle = '#b7c0d0';
+  const nameX = 72 + ctx.measureText(symbol).width + 22;
+  ctx.fillText(trimText(ctx, animation.name, 980), nameX, 78);
+  ctx.font = '400 22px Geist, sans-serif';
+  ctx.fillStyle = '#8b93a3';
+  ctx.textAlign = 'right';
+  ctx.fillText('Data: Yahoo Finance', WIDTH - 72, 74);
+  ctx.textAlign = 'left';
+}
 
-  ctx.font = '600 118px Geist, sans-serif';
-  ctx.fillStyle = '#f7f8fb';
-  drawTabular(ctx, formatPrice(animation.currency, price), 88, 286);
-
-  const moved = price - open;
+function drawLiveValue(
+  ctx: Ctx,
+  animation: Animation,
+  value: number,
+  price: number,
+  playhead: number,
+  alpha: number,
+): void {
+  if (alpha <= 0.01) return;
+  const open = animation.prices[0] ?? 0;
+  const gain = value - START_VALUE;
   const pct = open === 0 ? 0 : percentChange(price, open);
-  const flat = Math.abs(moved) < 0.005;
+  const above = gain >= -0.5;
+  const flat = Math.abs(gain) < 0.5;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '600 116px Geist, sans-serif';
+  ctx.fillStyle = '#f7f8fb';
+  drawTabular(ctx, formatWhole(animation.currency, value), 72, 214);
+
   const pill = flat
-    ? `${formatPrice(animation.currency, 0)}    0.0%`
-    : `${above ? '▲' : '▼'}  ${formatSignedPrice(animation.currency, moved)}    ${formatPercent(pct)}`;
-  ctx.font = '600 28px Geist, sans-serif';
-  const pillWidth = ctx.measureText(pill).width + 36;
-  roundRect(ctx, 88, 312, pillWidth, 48, 24);
-  ctx.fillStyle = flat ? 'rgba(255,255,255,0.08)' : above ? 'rgba(62, 224, 143, 0.14)' : 'rgba(255, 93, 108, 0.14)';
+    ? `${formatWhole(animation.currency, 0)} · 0.0%`
+    : `${above ? '▲' : '▼'} ${formatSignedWhole(animation.currency, gain)} · ${formatPercent(pct)}`;
+  ctx.font = '600 38px Geist, sans-serif';
+  const pillWidth = ctx.measureText(pill).width + 44;
+  roundRect(ctx, 72, 236, pillWidth, 68, 34);
+  ctx.fillStyle = flat ? 'rgba(255,255,255,0.08)' : above ? 'rgba(61,220,151,0.16)' : 'rgba(255,93,108,0.16)';
   ctx.fill();
-  ctx.fillStyle = flat ? '#c5ccd8' : above ? '#6ef0b0' : '#ff8d98';
-  ctx.fillText(pill, 106, 345);
+  ctx.fillStyle = flat ? '#d5dbe6' : above ? '#8af0c0' : '#ff9aa3';
+  ctx.fillText(pill, 94, 282);
+  ctx.restore();
 
   const dateIndex = Math.min(animation.dates.length - 1, Math.max(0, Math.floor(playhead)));
   const when = animation.dates[dateIndex] ?? animation.dates[0] ?? '';
   const since = animation.dates[0] ?? when;
-  ctx.font = '400 20px "Geist Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#8b93a3';
-  ctx.fillText(`${monthYear(when)}    since    ${monthYear(since)}`, 88, 404);
-  ctx.globalAlpha = 1;
+  ctx.font = '500 34px Geist, sans-serif';
+  ctx.fillStyle = '#d5dbe6';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillText(`${monthYear(when)} since ${monthYear(since)}`, 72, 356);
+  ctx.font = '500 28px Geist, sans-serif';
+  ctx.fillStyle = '#9aa3b5';
+  ctx.fillText(`Share price ${formatPrice(animation.currency, price)}`, 72, 398);
 }
 
-function drawGrid(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  yMin: number,
-  yMax: number,
-): void {
-  const step = niceStep(yMax - yMin, 4);
+function drawVerdict(ctx: Ctx, animation: Animation, alpha: number): void {
+  const last = animation.prices[animation.prices.length - 1] ?? animation.prices[0] ?? 0;
+  const open = animation.prices[0] ?? 0;
+  const end = priceToValue(last, open);
+  const pct = open === 0 ? 0 : percentChange(last, open);
+  const lead = `${formatWhole(animation.currency, START_VALUE)} → ${formatWhole(animation.currency, end)} · `;
+  const pctText = formatPercent(pct);
+  const tail = ` ${animation.yearsLabel}`;
+  let size = 46;
+  ctx.font = `600 ${size}px Geist, sans-serif`;
+  while (size > 30 && ctx.measureText(`${lead}${pctText}${tail}`).width > 1680) {
+    size -= 2;
+    ctx.font = `600 ${size}px Geist, sans-serif`;
+  }
+  const width = ctx.measureText(`${lead}${pctText}${tail}`).width;
+  const x = 72;
+  const y = 214;
+  const top = y - 46;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  roundRect(ctx, x - 28, top, width + 56, 92, 20);
+  ctx.fillStyle = 'rgba(255,255,255,0.07)';
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+  ctx.stroke();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#f7f8fb';
+  ctx.fillText(lead, x, y);
+  const leadWidth = ctx.measureText(lead).width;
+  ctx.fillStyle = pct >= 0 ? UP : DOWN;
+  ctx.fillText(pctText, x + leadWidth, y);
+  ctx.fillStyle = '#f7f8fb';
+  ctx.fillText(tail, x + leadWidth + ctx.measureText(pctText).width, y);
+  ctx.restore();
+}
+
+function drawGrid(ctx: Ctx, yMin: number, yMax: number, open: number): void {
+  const vMin = priceToValue(yMin, open);
+  const vMax = priceToValue(yMax, open);
+  const step = niceStep(vMax - vMin, 4);
   if (step <= 0) return;
-  ctx.font = '400 16px "Geist Mono", ui-monospace, monospace';
+  ctx.font = '500 28px Geist, sans-serif';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  const start = Math.ceil(yMin / step) * step;
-  for (let value = start; value <= yMax; value += step) {
-    const y = yAt(value, yMin, yMax);
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-    ctx.lineWidth = 1;
+  ctx.lineWidth = 1;
+  const start = Math.ceil(vMin / step) * step;
+  let lastY = -Infinity;
+  for (let value = start; value <= vMax + step * 0.01; value += step) {
+    const y = yAt(valueToPrice(value, open), yMin, yMax);
+    if (y < PLOT.y + 24 || y > PLOT.y + PLOT.h - 24) continue;
+    if (Math.abs(y - lastY) < 48) continue;
+    lastY = y;
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
     ctx.beginPath();
     ctx.moveTo(PLOT.x, y);
     ctx.lineTo(PLOT.x + PLOT.w, y);
     ctx.stroke();
-    ctx.fillStyle = '#6f7888';
-    ctx.fillText(compactNumber(value), PLOT.x - 14, y);
   }
 }
 
-function drawBaseline(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  open: number,
-  yMin: number,
-  yMax: number,
-  currency: string,
-): void {
-  if (open < yMin || open > yMax) return;
-  const y = yAt(open, yMin, yMax);
+function drawYLabels(ctx: Ctx, yMin: number, yMax: number, open: number, currency: string): void {
+  const vMin = priceToValue(yMin, open);
+  const vMax = priceToValue(yMax, open);
+  const step = niceStep(vMax - vMin, 4);
+  if (step <= 0) return;
+  ctx.font = '500 28px Geist, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  const start = Math.ceil(vMin / step) * step;
+  let lastY = -Infinity;
+  for (let value = start; value <= vMax + step * 0.01; value += step) {
+    const y = yAt(valueToPrice(value, open), yMin, yMax);
+    if (y < PLOT.y + 24 || y > PLOT.y + PLOT.h - 24) continue;
+    if (Math.abs(y - lastY) < 48) continue;
+    lastY = y;
+    ctx.fillStyle = '#d5dbe6';
+    ctx.fillText(formatWhole(currency, value), PLOT.x - 16, y);
+  }
+}
+
+function drawStartLine(ctx: Ctx, startY: number): void {
+  if (startY < PLOT.y || startY > PLOT.y + PLOT.h) return;
   ctx.save();
-  ctx.setLineDash([4, 8]);
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 1.5;
+  ctx.setLineDash([10, 10]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(PLOT.x, y);
-  ctx.lineTo(PLOT.x + PLOT.w, y);
+  ctx.moveTo(PLOT.x, startY);
+  ctx.lineTo(PLOT.x + PLOT.w, startY);
   ctx.stroke();
   ctx.restore();
-  ctx.font = '400 15px "Geist Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#8b93a3';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'bottom';
-  ctx.fillText(formatPrice(currency, open), PLOT.x + PLOT.w, y - 8);
 }
 
-function drawArea(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  points: readonly { x: number; y: number }[],
-  above: boolean,
-): void {
-  const first = points[0];
-  const last = points[points.length - 1];
+function drawStartLabel(ctx: Ctx, currency: string, startY: number): void {
+  if (startY < PLOT.y + 8 || startY > PLOT.y + PLOT.h - 8) return;
+  const text = `START ${formatWhole(currency, START_VALUE)}`;
+  ctx.font = '600 26px Geist, sans-serif';
+  const width = ctx.measureText(text).width;
+  const x = PLOT.x + PLOT.w - width - 28;
+  const y = startY < PLOT.y + 36 ? startY + 28 : startY - 14;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#f4f7fb';
+  ctx.fillText(text, x, y);
+}
+
+function drawArea(ctx: Ctx, run: Run, startY: number): void {
+  if (run.points.length < 2) return;
+  const first = run.points[0];
+  const last = run.points[run.points.length - 1];
   if (!first || !last) return;
-  const gradient = ctx.createLinearGradient(0, PLOT.y, 0, PLOT.y + PLOT.h);
-  gradient.addColorStop(0, above ? 'rgba(120, 235, 180, 0.28)' : 'rgba(255, 140, 150, 0.22)');
-  gradient.addColorStop(1, above ? 'rgba(120, 235, 180, 0)' : 'rgba(255, 140, 150, 0)');
   ctx.beginPath();
-  ctx.moveTo(first.x, first.y);
-  for (let i = 1; i < points.length; i += 1) {
-    const point = points[i];
-    if (point) ctx.lineTo(point.x, point.y);
-  }
-  ctx.lineTo(last.x, PLOT.y + PLOT.h);
-  ctx.lineTo(first.x, PLOT.y + PLOT.h);
+  traceCurve(ctx, run.points);
+  ctx.lineTo(last.x, startY);
+  ctx.lineTo(first.x, startY);
   ctx.closePath();
-  ctx.fillStyle = gradient;
+  ctx.fillStyle = run.above ? 'rgba(61,220,151,0.20)' : 'rgba(255,93,108,0.18)';
   ctx.fill();
 }
 
-function drawLine(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  points: readonly { x: number; y: number }[],
-  above: boolean,
-): void {
-  if (points.length < 2) return;
-  const trace = () => {
-    const first = points[0];
-    if (!first) return;
-    ctx.beginPath();
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < points.length; i += 1) {
-      const point = points[i];
-      if (point) ctx.lineTo(point.x, point.y);
-    }
-  };
+function drawRun(ctx: Ctx, run: Run): void {
+  if (run.points.length < 2) return;
+  ctx.beginPath();
+  traceCurve(ctx, run.points);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.strokeStyle = above ? 'rgba(170, 255, 214, 0.20)' : 'rgba(255, 186, 192, 0.18)';
-  ctx.lineWidth = 16;
-  trace();
-  ctx.stroke();
-  ctx.strokeStyle = above ? 'rgba(210, 255, 232, 0.45)' : 'rgba(255, 214, 218, 0.40)';
-  ctx.lineWidth = 6;
-  trace();
-  ctx.stroke();
-  ctx.strokeStyle = '#f5f8fc';
-  ctx.lineWidth = 2.6;
-  trace();
+  ctx.strokeStyle = run.above ? UP : DOWN;
+  ctx.lineWidth = 5;
   ctx.stroke();
 }
 
-function drawTip(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  tip: { x: number; y: number },
-  symbol: string,
-  currency: string,
-  price: number,
-  fade: number,
-): void {
+function drawHead(ctx: Ctx, tip: Point): void {
   ctx.beginPath();
-  ctx.fillStyle = 'rgba(255,255,255,0.16)';
-  ctx.arc(tip.x, tip.y, 16, 0, Math.PI * 2);
+  ctx.fillStyle = tip.value >= START_VALUE ? UP : DOWN;
+  ctx.arc(tip.x, tip.y, 8, 0, Math.PI * 2);
   ctx.fill();
   ctx.beginPath();
-  ctx.fillStyle = '#ffffff';
-  ctx.arc(tip.x, tip.y, 5.5, 0, Math.PI * 2);
+  ctx.fillStyle = '#f7f8fb';
+  ctx.arc(tip.x, tip.y, 3.5, 0, Math.PI * 2);
   ctx.fill();
-
-  ctx.globalAlpha = fade;
-  ctx.font = '500 20px "Geist Mono", ui-monospace, monospace';
-  const label = `${symbol}  ${formatPrice(currency, price)}`;
-  const width = ctx.measureText(label).width;
-  const placeRight = tip.x + 22 + width < PLOT.x + PLOT.w - 8;
-  const x = placeRight ? tip.x + 22 : tip.x - 22 - width;
-  const y = Math.min(PLOT.y + PLOT.h - 8, Math.max(PLOT.y + 22, tip.y - 16));
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#f4f7fb';
-  ctx.fillText(label, x, y);
-  ctx.globalAlpha = 1;
 }
 
-function drawMonths(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  dates: readonly string[],
-  left: number,
-  right: number,
-): void {
-  ctx.font = '400 16px "Geist Mono", ui-monospace, monospace';
-  ctx.fillStyle = '#7d8696';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  let lastX = -Infinity;
-  let lastKey = '';
-  const start = Math.max(0, Math.floor(left));
-  const end = Math.min(dates.length - 1, Math.ceil(right));
-  for (let i = start; i <= end; i += 1) {
-    const iso = dates[i];
-    if (!iso) continue;
-    const key = iso.slice(0, 7);
-    if (key === lastKey) continue;
-    lastKey = key;
-    const x = xAt(i, left, right);
-    if (x < PLOT.x + 36 || x > PLOT.x + PLOT.w - 36 || x - lastX < 88) continue;
-    lastX = x;
-    ctx.fillText(shortMonth(iso), x, PLOT.y + PLOT.h + 16);
-  }
-}
-
-function linePoints(
-  prices: readonly number[],
+function drawExtreme(
+  ctx: Ctx,
+  animation: Animation,
+  kind: 'peak' | 'low',
   playhead: number,
   left: number,
   right: number,
   yMin: number,
   yMax: number,
-): { x: number; y: number }[] {
-  const last = Math.min(prices.length - 1, Math.max(0, playhead));
-  const start = Math.max(0, Math.floor(left));
-  const end = Math.min(prices.length - 1, Math.floor(last));
-  const span = Math.max(1, end - start);
-  const step = Math.max(1, Math.floor(span / 640));
-  const points: { x: number; y: number }[] = [];
-  for (let i = start; i <= end; i += step) {
-    const value = prices[i];
-    if (value === undefined) continue;
-    pushPoint(points, xAt(i, left, right), yAt(value, yMin, yMax));
+): void {
+  const index = kind === 'peak' ? animation.highIndex : animation.lowIndex;
+  const age = playhead - index;
+  if (age < 0) return;
+  const price = animation.prices[index];
+  const date = animation.dates[index];
+  if (price === undefined || !date) return;
+  const x = xAt(index, left, right);
+  const y = yAt(price, yMin, yMax);
+  if (x < PLOT.x + 8 || x > PLOT.x + PLOT.w - 8) return;
+  if (y < PLOT.y - 20 || y > PLOT.y + PLOT.h + 20) return;
+  const fade = Math.min(1, age / 10);
+  const value = priceToValue(price, animation.prices[0] ?? price);
+  const above = value >= START_VALUE;
+  const text = `${kind === 'peak' ? 'Peak' : 'Low'} ${formatWhole(animation.currency, value)} · ${monthYear(date)}`;
+  ctx.save();
+  ctx.globalAlpha = fade;
+  ctx.font = '600 26px Geist, sans-serif';
+  const width = ctx.measureText(text).width + 24;
+  const preferAbove = kind === 'peak';
+  let chipY = preferAbove ? y - 34 : y + 34;
+  if (chipY < PLOT.y + 22) chipY = y + 34;
+  if (chipY > PLOT.y + PLOT.h - 22) chipY = y - 34;
+  let chipX = x - width / 2;
+  if (chipX < PLOT.x + 8) chipX = PLOT.x + 8;
+  if (chipX + width > PLOT.x + PLOT.w - 8) chipX = PLOT.x + PLOT.w - 8 - width;
+  ctx.strokeStyle = above ? UP : DOWN;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, chipY);
+  ctx.stroke();
+  roundRect(ctx, chipX, chipY - 18, width, 36, 10);
+  ctx.fillStyle = 'rgba(8,10,14,0.88)';
+  ctx.fill();
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = above ? UP : DOWN;
+  ctx.fillText(text, chipX + 12, chipY);
+  ctx.beginPath();
+  ctx.fillStyle = above ? UP : DOWN;
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawXLabels(ctx: Ctx, dates: readonly string[], left: number, right: number): void {
+  const span = Math.max(1, right - left);
+  ctx.font = '500 28px Geist, sans-serif';
+  const sample = span < 80 ? 'Sep 28' : 'Sep 26';
+  const slot = ctx.measureText(sample).width + 48;
+  const count = Math.max(2, Math.min(7, Math.floor(PLOT.w / slot)));
+  ctx.fillStyle = '#d5dbe6';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  let lastRight = -Infinity;
+  let lastText = '';
+  const y = PLOT.y + PLOT.h + 18;
+  for (let i = 0; i < count; i += 1) {
+    const index = left + ((i + 0.5) / count) * span;
+    const bar = Math.max(0, Math.min(dates.length - 1, Math.round(index)));
+    const iso = dates[bar];
+    if (!iso) continue;
+    const text = span < 80 ? monthDay(iso) : shortMonth(iso);
+    if (text === lastText) continue;
+    const width = ctx.measureText(text).width;
+    const x = xAt(bar, left, right);
+    if (x - width / 2 < PLOT.x || x + width / 2 > PLOT.x + PLOT.w) continue;
+    if (x - width / 2 < lastRight + 20) continue;
+    ctx.fillText(text, x, y);
+    lastRight = x + width / 2;
+    lastText = text;
   }
-  pushPoint(points, xAt(playhead, left, right), yAt(sample(prices, playhead), yMin, yMax));
+}
+
+function collectPoints(
+  animation: Animation,
+  playhead: number,
+  left: number,
+  right: number,
+  yMin: number,
+  yMax: number,
+): Point[] {
+  const open = animation.prices[0] ?? 0;
+  const last = Math.min(animation.prices.length - 1, Math.max(0, playhead));
+  const start = Math.max(0, Math.floor(left));
+  const end = Math.min(animation.prices.length - 1, Math.floor(last));
+  const step = Math.max(1, Math.floor(Math.max(1, end - start) / 480));
+  const indexes: number[] = [];
+  for (let i = start; i <= end; i += step) indexes.push(i);
+  if (animation.highIndex >= start && animation.highIndex <= end) indexes.push(animation.highIndex);
+  if (animation.lowIndex >= start && animation.lowIndex <= end) indexes.push(animation.lowIndex);
+  indexes.push(playhead);
+  indexes.sort((a, b) => a - b);
+  const points: Point[] = [];
+  let previous = -Infinity;
+  for (const index of indexes) {
+    if (index - previous < 1e-4) continue;
+    previous = index;
+    const drawn = visualPrice(animation, index, playhead);
+    points.push({
+      x: xAt(index, left, right),
+      y: yAt(drawn, yMin, yMax),
+      value: priceToValue(drawn, open),
+    });
+  }
   return points;
 }
 
-function pushPoint(points: { x: number; y: number }[], x: number, y: number): void {
-  const previous = points[points.length - 1];
-  if (previous && Math.hypot(previous.x - x, previous.y - y) < 0.75) return;
-  points.push({ x, y });
+function splitRuns(points: readonly Point[], startValue: number): Run[] {
+  const first = points[0];
+  if (!first) return [];
+  const runs: Run[] = [];
+  let batch: Point[] = [first];
+  let above = first.value >= startValue;
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = points[i - 1];
+    const point = points[i];
+    if (!prev || !point) continue;
+    const prevAbove = prev.value >= startValue;
+    const pointAbove = point.value >= startValue;
+    if (prevAbove !== pointAbove && point.value !== prev.value) {
+      const t = (startValue - prev.value) / (point.value - prev.value);
+      const mid: Point = {
+        x: prev.x + (point.x - prev.x) * t,
+        y: prev.y + (point.y - prev.y) * t,
+        value: startValue,
+      };
+      batch.push(mid);
+      runs.push({ above: prevAbove, points: batch });
+      batch = [mid, point];
+      above = pointAbove;
+    } else {
+      batch.push(point);
+      above = pointAbove;
+    }
+  }
+  runs.push({ above, points: batch });
+  return runs;
 }
 
-function shortSymbol(symbol: string): string {
-  return symbol.endsWith('.US') ? symbol.slice(0, -3) : symbol;
+function traceCurve(ctx: Ctx, points: readonly Point[]): void {
+  const first = points[0];
+  if (!first) return;
+  ctx.moveTo(first.x, first.y);
+  if (points.length < 3) {
+    for (let i = 1; i < points.length; i += 1) {
+      const point = points[i];
+      if (point) ctx.lineTo(point.x, point.y);
+    }
+    return;
+  }
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const point = points[i];
+    const next = points[i + 1];
+    if (!point || !next) continue;
+    const xc = (point.x + next.x) / 2;
+    const yc = (point.y + next.y) / 2;
+    ctx.quadraticCurveTo(point.x, point.y, xc, yc);
+  }
+  const last = points[points.length - 1];
+  if (last) ctx.lineTo(last.x, last.y);
+}
+
+function visualPrice(animation: Animation, index: number, playhead: number): number {
+  const raw = sample(animation.prices, index);
+  const smooth = sample(animation.smooth, index);
+  const blend = Math.exp(-Math.abs(playhead - index) / 5);
+  return smooth + (raw - smooth) * blend;
 }
 
 function revealProgress(frame: number): number {
-  const drawEnd = FRAME_COUNT - HOLD_FRAMES;
-  if (frame >= drawEnd) return 1;
-  const u = frame / drawEnd;
+  if (frame >= DRAW_END) return 1;
+  const u = frame / DRAW_END;
   return 1 - (1 - u) ** 1.35;
 }
 
 function chooseWindow(count: number): number {
-  const preferred = Math.round(count * 0.34);
-  return Math.max(1, Math.min(count - 1, Math.max(preferred, Math.min(90, count - 1))));
+  const preferred = Math.round(count * 0.28);
+  return Math.max(1, Math.min(count - 1, Math.max(preferred, Math.min(80, count - 1))));
 }
 
-function windowFor(playhead: number, count: number, size: number): { left: number; right: number } {
-  const pad = size * 0.16;
-  const maxRight = count - 1 + pad;
+function targetWindow(playhead: number, count: number, size: number): { left: number; right: number } {
+  const pad = Math.max(2, size * 0.1);
   let right = playhead + pad;
   let left = right - size;
-  if (right > maxRight) {
-    right = maxRight;
+  if (right > count - 1) {
+    right = count - 1;
     left = right - size;
   }
   if (left < 0) {
     left = 0;
-    right = Math.min(maxRight, size);
+    right = Math.min(count - 1, Math.max(pad, playhead + pad));
   }
+  if (right <= left) right = Math.min(count - 1, left + 1);
+  return { left, right };
+}
+
+function containPlayhead(
+  left: number,
+  right: number,
+  playhead: number,
+  count: number,
+): { left: number; right: number } {
+  if (playhead < left) {
+    const shift = left - playhead;
+    left -= shift;
+    right -= shift;
+  }
+  if (playhead > right) {
+    const shift = playhead - right;
+    left += shift;
+    right += shift;
+  }
+  if (right > count - 1) {
+    const shift = right - (count - 1);
+    right -= shift;
+    left = Math.max(0, left - shift);
+  }
+  if (left < 0) left = 0;
+  if (right <= left) right = Math.min(count - 1, left + 1);
   return { left, right };
 }
 
@@ -438,9 +661,88 @@ function visibleRange(prices: readonly number[], left: number, playhead: number)
   return { min, max };
 }
 
-function approach(current: number, target: number, expanding: boolean): number {
-  const rate = expanding ? 0.11 : 0.035;
-  return current + (target - current) * rate;
+function paddedRange(min: number, max: number, open: number): { lo: number; hi: number } {
+  const pad = Math.max((max - min) * 0.14, Math.abs(max) * 0.03, open * 0.08, 1);
+  return enforceSpan(min, max, min - pad, max + pad, min, pad);
+}
+
+function enforceSpan(
+  lo: number,
+  hi: number,
+  targetLo: number,
+  targetHi: number,
+  price: number,
+  minSpan: number,
+): { lo: number; hi: number } {
+  const expandLo = targetLo < lo;
+  const expandHi = targetHi > hi;
+  lo += (targetLo - lo) * (expandLo ? 0.08 : 0.03);
+  hi += (targetHi - hi) * (expandHi ? 0.08 : 0.03);
+  if (price < lo) lo = price;
+  if (price > hi) hi = price;
+  if (hi - lo < minSpan) {
+    const mid = (lo + hi) / 2;
+    lo = mid - minSpan / 2;
+    hi = mid + minSpan / 2;
+  }
+  if (price < lo) {
+    hi -= lo - price;
+    lo = price;
+  }
+  if (price > hi) {
+    lo += price - hi;
+    hi = price;
+  }
+  if (lo < 0) {
+    hi -= lo;
+    lo = 0;
+    if (price > hi) hi = price;
+  }
+  return { lo, hi };
+}
+
+function extremeIndex(prices: readonly number[], kind: 'high' | 'low'): number {
+  let index = 0;
+  for (let i = 1; i < prices.length; i += 1) {
+    const value = prices[i] ?? 0;
+    const best = prices[index] ?? 0;
+    if (kind === 'high' ? value > best : value < best) index = i;
+  }
+  return index;
+}
+
+function gaussianSmooth(values: readonly number[], radius: number): number[] {
+  if (radius < 1) return values.slice();
+  const sigma = radius / 2;
+  const weights: number[] = [];
+  for (let i = -radius; i <= radius; i += 1) weights.push(Math.exp(-0.5 * (i / sigma) ** 2));
+  return values.map((_, index) => {
+    let acc = 0;
+    let weight = 0;
+    for (let k = -radius; k <= radius; k += 1) {
+      const value = values[index + k];
+      const w = weights[k + radius];
+      if (value === undefined || w === undefined) continue;
+      acc += value * w;
+      weight += w;
+    }
+    return weight === 0 ? values[index] ?? 0 : acc / weight;
+  });
+}
+
+function pinExtreme(smooth: number[], prices: readonly number[], index: number): void {
+  const raw = prices[index];
+  if (raw === undefined) return;
+  smooth[index] = raw;
+  for (let distance = 1; distance <= 3; distance += 1) {
+    const blend = 1 - distance / 4;
+    for (const neighbor of [index - distance, index + distance]) {
+      const next = smooth[neighbor];
+      const price = prices[neighbor];
+      if (next === undefined || price === undefined) continue;
+      smooth[neighbor] = next * (1 - blend) + price * blend;
+    }
+  }
 }
 
 function sample(prices: readonly number[], index: number): number {
@@ -450,6 +752,16 @@ function sample(prices: readonly number[], index: number): number {
   const a = prices[i0] ?? 0;
   const b = prices[i1] ?? a;
   return a + (b - a) * span;
+}
+
+function priceToValue(price: number, open: number): number {
+  if (open === 0) return START_VALUE;
+  return (price / open) * START_VALUE;
+}
+
+function valueToPrice(value: number, open: number): number {
+  if (open === 0) return 0;
+  return (value / START_VALUE) * open;
 }
 
 function xAt(index: number, left: number, right: number): number {
@@ -466,6 +778,19 @@ function clampFrame(frame: number): number {
   return Math.max(0, Math.min(FRAME_COUNT - 1, Math.floor(frame)));
 }
 
+function smoothstep(value: number): number {
+  const t = Math.max(0, Math.min(1, value));
+  return t * t * (3 - 2 * t);
+}
+
+function yearsPhrase(start: string, end: string): string {
+  const from = Date.parse(`${start}T00:00:00Z`);
+  const to = Date.parse(`${end}T00:00:00Z`);
+  const years = Number.isFinite(from) && Number.isFinite(to) ? (to - from) / (365.25 * 86_400_000) : 5;
+  const rounded = Math.max(1, Math.round(years));
+  return rounded === 1 ? 'in 1 year' : `in ${rounded} years`;
+}
+
 function presentName(name: string): string {
   const stripped = name
     .replace(/\b(incorporated|inc|corporation|corp|holdings|limited|ltd|group|co)\b\.?/gi, '')
@@ -479,6 +804,10 @@ function presentName(name: string): string {
   return base;
 }
 
+function shortSymbol(symbol: string): string {
+  return symbol.endsWith('.US') ? symbol.slice(0, -3) : symbol;
+}
+
 function formatPrice(currency: string, value: number): string {
   const body = Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const sign = value < 0 ? '−' : '';
@@ -487,10 +816,20 @@ function formatPrice(currency: string, value: number): string {
   return `${sign}${body} ${currency}`.trim();
 }
 
-function formatSignedPrice(currency: string, value: number): string {
-  const body = formatPrice(currency, Math.abs(value));
-  if (value > 0) return `+${body}`;
-  if (value < 0) return `−${body}`;
+function formatWhole(currency: string, value: number): string {
+  const rounded = Math.round(value);
+  const amount = Math.abs(rounded) < 1 ? 0 : Math.abs(rounded);
+  const body = amount.toLocaleString('en-US');
+  const sign = rounded < 0 && amount !== 0 ? '−' : '';
+  if (currency === 'USD') return `${sign}$${body}`;
+  if (currency === 'HKD') return `${sign}HK$${body}`;
+  return `${sign}${body} ${currency}`.trim();
+}
+
+function formatSignedWhole(currency: string, value: number): string {
+  const body = formatWhole(currency, Math.abs(value));
+  if (value > 0.5) return `+${body}`;
+  if (value < -0.5) return `−${body}`;
   return body;
 }
 
@@ -514,10 +853,10 @@ function shortMonth(iso: string): string {
   return `${name} ${(year ?? '').slice(2)}`;
 }
 
-function compactNumber(value: number): string {
-  const abs = Math.abs(value);
-  const digits = abs >= 100 ? 0 : abs >= 10 ? 1 : 2;
-  return value.toLocaleString('en-US', { maximumFractionDigits: digits, minimumFractionDigits: digits });
+function monthDay(iso: string): string {
+  const [, month, day] = iso.split('-');
+  const name = MONTHS[(Number(month) || 1) - 1] ?? 'Jan';
+  return `${name} ${Number(day) || 1}`;
 }
 
 function niceStep(span: number, ticks: number): number {
@@ -530,12 +869,7 @@ function niceStep(span: number, ticks: number): number {
   return nice * base;
 }
 
-function drawTabular(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-): void {
+function drawTabular(ctx: Ctx, text: string, x: number, y: number): void {
   const digit = ctx.measureText('0').width;
   let cursor = x;
   for (const char of text) {
@@ -550,11 +884,7 @@ function drawTabular(
   }
 }
 
-function trimText(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  text: string,
-  maxWidth: number,
-): string {
+function trimText(ctx: Ctx, text: string, maxWidth: number): string {
   if (ctx.measureText(text).width <= maxWidth) return text;
   let trimmed = text;
   while (trimmed.length > 1 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
@@ -563,19 +893,13 @@ function trimText(
   return `${trimmed}…`;
 }
 
-function roundRect(
-  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
+function roundRect(ctx: Ctx, x: number, y: number, w: number, h: number, r: number): void {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
+  ctx.moveTo(x + radius, y);
+  ctx.arcTo(x + w, y, x + w, y + h, radius);
+  ctx.arcTo(x + w, y + h, x, y + h, radius);
+  ctx.arcTo(x, y + h, x, y, radius);
+  ctx.arcTo(x, y, x + w, y, radius);
   ctx.closePath();
 }

@@ -70,7 +70,7 @@ function drawIdle(): void {
   context.font = '500 28px Geist, sans-serif';
   context.textAlign = 'left';
   context.textBaseline = 'middle';
-  context.fillText('Enter a ticker to play its price.', 88, 540);
+  context.fillText('Enter a ticker to see what $10,000 became.', 88, 540);
   context.setTransform(1, 0, 0, 1, 0, 0);
 }
 
