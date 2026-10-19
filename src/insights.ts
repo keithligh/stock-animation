@@ -254,15 +254,10 @@ export function playheadSeries(count: number, slowAt: readonly number[]): Float6
 }
 
 export function placeCallouts(events: readonly MarketEvent[], series: Float64Array): VisibleCallout[] {
-  const prepared = coalesceDividends(events);
-  const story = prepared
+  const story = events
     .filter((event) => event.kind !== 'dividend')
     .slice()
     .sort((a, b) => a.index - b.index || a.priority - b.priority);
-  const dividends = prepared
-    .filter((event) => event.kind === 'dividend')
-    .slice()
-    .sort((a, b) => a.index - b.index);
   const placed: VisibleCallout[] = [];
   let cursor = 0;
   for (const event of story) {
@@ -275,14 +270,6 @@ export function placeCallouts(events: readonly MarketEvent[], series: Float64Arr
     if (end - start < 45) continue;
     placed.push(toCallout(event, start, end, arrive));
     cursor = end;
-  }
-  for (const event of dividends) {
-    const arrive = frameWhen(series, event.index);
-    if (arrive >= PLAY_END) continue;
-    const end = Math.min(FRAME_COUNT, arrive + CALLOUT_FRAMES);
-    if (end - arrive < 45) continue;
-    if (placed.some((item) => arrive < item.endFrame && end > item.startFrame)) continue;
-    placed.push(toCallout(event, arrive, end, arrive));
   }
   placed.sort((a, b) => a.startFrame - b.startFrame);
   return placed;
@@ -441,7 +428,7 @@ function pushDrawdown(
     anchor: trough,
     priority: priorityFor('drawdown'),
     score: Math.abs(depth),
-    text: `${formatSignedPrice(currency, troughPrice - peakPrice)} · ${formatRoundedPercent(depth)} ${inPhrase(peakDate, troughDate)}`,
+    text: `${formatRoundedPercent(depth)} ${inPhrase(peakDate, troughDate)}`,
   });
   if (recovery === null) return;
   events.push({
@@ -518,7 +505,7 @@ function pushBiggestDays(events: MarketEvent[], prices: readonly number[], dates
       anchor: upIndex,
       priority: priorityFor('up'),
       score: upChange,
-      text: `${formatSignedPrice(currency, (prices[upIndex] ?? 0) - (prices[upIndex - 1] ?? 0))} · ${formatRoundedPercent(upChange)} · ${formatLongDate(dates[upIndex] ?? '')}`,
+      text: `${formatRoundedPercent(upChange)} · ${formatLongDate(dates[upIndex] ?? '')}`,
     });
   }
   if (downIndex >= 0) {
@@ -528,7 +515,7 @@ function pushBiggestDays(events: MarketEvent[], prices: readonly number[], dates
       anchor: downIndex,
       priority: priorityFor('down'),
       score: Math.abs(downChange),
-      text: `${formatSignedPrice(currency, (prices[downIndex] ?? 0) - (prices[downIndex - 1] ?? 0))} · ${formatRoundedPercent(downChange)} · ${formatLongDate(dates[downIndex] ?? '')}`,
+      text: `${formatRoundedPercent(downChange)} · ${formatLongDate(dates[downIndex] ?? '')}`,
     });
   }
 }
@@ -560,18 +547,6 @@ function pushDividends(
       text: `Dividends ${formatPrice(currency, total)}`,
     });
   }
-}
-
-function coalesceDividends(events: readonly MarketEvent[]): MarketEvent[] {
-  const story = events.filter((event) => event.kind !== 'dividend');
-  const dividends = events.filter((event) => event.kind === 'dividend').slice().sort((a, b) => a.index - b.index);
-  const merged: MarketEvent[] = [];
-  for (const dividend of dividends) {
-    const previous = merged[merged.length - 1];
-    if (previous && dividend.index - previous.index <= 15) merged[merged.length - 1] = dividend;
-    else merged.push(dividend);
-  }
-  return [...story, ...merged];
 }
 
 function toCallout(event: MarketEvent, start: number, end: number, arrive: number): VisibleCallout {

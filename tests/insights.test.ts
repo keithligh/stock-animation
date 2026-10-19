@@ -70,8 +70,8 @@ describe('event detection', () => {
     const events = detectEvents(prices, dates, [], 'USD');
     const drawdown = events.find((event) => event.kind === 'drawdown');
     expect(drawdown?.anchor).toBe(3);
-    expect(drawdown?.text).toMatch(/^−\$60\.00 · −46% in /);
-    expect(events.some((event) => event.kind === 'up' && event.text.includes('+67%') && event.text.startsWith('+$60.00'))).toBe(true);
+    expect(drawdown?.text).toMatch(/^−46% in /);
+    expect(events.some((event) => event.kind === 'up' && event.text.startsWith('+67%'))).toBe(true);
     expect(events.some((event) => event.kind === 'down' && event.index === 3)).toBe(true);
     expect(events.some((event) => event.kind === 'recovery' && event.text.startsWith('Recovered $130.00'))).toBe(true);
     expect(events.filter((event) => event.kind === 'recovery')).toHaveLength(1);

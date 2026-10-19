@@ -5,7 +5,6 @@ import {
   detectEvents,
   easeInOut,
   ESTABLISH_END,
-  formatLongDate,
   formatMonthStamp,
   formatMonthYear,
   formatPercent,
@@ -25,7 +24,6 @@ import {
   slowIndexes,
   stepSpring,
   yearBoundaries,
-  yearChapter,
   type VisibleCallout,
 } from './insights';
 
@@ -81,9 +79,8 @@ interface ViewTarget {
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
-const PANEL = { x: 48, y: 308, w: 1824, h: 668 };
-const PLOT = { x: 176, y: 340, w: 1664, h: 552 };
-const TIME_Y = 1024;
+const PANEL = { x: 48, y: 320, w: 1824, h: 708 };
+const PLOT = { x: 214, y: 348, w: 1624, h: 628 };
 const CARD_X = 680;
 const CARD_W = 392;
 const CARD_H = 168;
@@ -97,7 +94,6 @@ let viewLeft = 0;
 let viewRight = 1;
 let viewLo = 1;
 let viewHi = 2;
-let viewLog = 0;
 
 export function buildAnimation(input: {
   displaySymbol: string;
@@ -166,9 +162,7 @@ export function drawFrame(ctx: Ctx, animation: Animation, frame: number): void {
   viewRight = Math.max(viewLeft + 1e-3, animation.windowRight[index] ?? viewLeft + 1);
   viewLo = animation.yMin[index] ?? price;
   viewHi = animation.yMax[index] ?? Math.max(price, viewLo + 1);
-  viewLog = animation.logMix[index] ?? 0;
   if (!(viewHi > viewLo)) viewHi = viewLo + 1;
-  if (viewLog > 0 && viewLo <= 0) viewLo = Math.max(1e-4, Math.min(price, viewHi) * 0.2);
   const plate = hookPlate(index);
   const canvas = ctx.canvas;
   ctx.setTransform(canvas.width / WIDTH, 0, 0, canvas.height / HEIGHT, 0, 0);
@@ -215,17 +209,8 @@ export function drawFrame(ctx: Ctx, animation: Animation, frame: number): void {
 
   drawYLabels(ctx, animation.currency);
   drawXLabels(ctx, animation);
-  if (plate < 0.45) {
-    drawStartLabel(ctx, animation.currency, open);
-    drawExtremeLabel(ctx, animation, 'PEAK', animation.highIndex, playhead);
-    drawExtremeLabel(ctx, animation, 'LOW', animation.lowIndex, playhead);
-    if (tip) drawNowLabel(ctx, animation.currency, tip);
-    drawCallout(ctx, animation, index, playhead, open);
-  }
-  if (viewLog > 0.55) drawLogLabel(ctx);
-  if (index >= ESTABLISH_END) drawYearLabel(ctx, animation, endIndex);
-  if (plate > 0.02) drawHook(ctx, animation, plate);
-  drawTimebar(ctx, animation, playhead);
+  if (plate < 0.45) drawAnnotations(ctx, animation, index, playhead, open, tip);
+  drawSource(ctx);
   ctx.globalAlpha = 1;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
 }
@@ -246,33 +231,37 @@ function drawHeader(ctx: Ctx, animation: Animation, frame: number, price: number
 
   ctx.font = '500 20px Geist, sans-serif';
   ctx.fillStyle = MUTED;
-  ctx.fillText(`Share price  ·  ${animation.currency}`, 48, 116);
+  ctx.fillText(`Share price  ·  ${animation.currency}`, 48, 112);
 
-  const heroAlpha = 1 - plate;
-  if (heroAlpha <= 0.02) return;
-  ctx.save();
-  ctx.globalAlpha = heroAlpha;
+  const open = animation.prices[0] ?? price;
+  const end = animation.prices[animation.prices.length - 1] ?? open;
+  const date = animation.dates[Math.min(animation.dates.length - 1, Math.max(0, Math.round(animation.reveal[frame] ?? 0)))] ?? '';
   ctx.font = '600 92px Geist, sans-serif';
   ctx.fillStyle = INK;
-  drawTabular(ctx, formatPrice(animation.currency, price), 48, 214);
-  const open = animation.prices[0] ?? price;
-  const date = animation.dates[Math.min(animation.dates.length - 1, Math.max(0, Math.round(animation.reveal[frame] ?? 0)))] ?? '';
-  if (frame < ESTABLISH_END) {
-    ctx.font = '500 28px Geist, sans-serif';
-    ctx.fillStyle = '#d5dbe6';
-    ctx.fillText(formatLongDate(date), 48, 268);
-  } else {
-    const delta = price - open;
-    const pct = open === 0 ? 0 : percentChange(price, open);
-    const tone = delta >= 0 ? '#b6ffd8' : '#ffc7ce';
-    ctx.font = '600 32px Geist, sans-serif';
-    ctx.fillStyle = tone;
-    drawTabular(ctx, `${formatSignedPrice(animation.currency, delta)}  ·  ${formatPercent(pct)}`, 48, 264);
-    ctx.font = '500 24px Geist, sans-serif';
-    ctx.fillStyle = '#d5dbe6';
-    ctx.fillText(`${formatMonthYear(date)} since ${formatMonthYear(animation.dates[0] ?? date)}`, 48, 302);
+  drawTabular(ctx, formatPrice(animation.currency, price), 48, 206);
+
+  const delta = price - open;
+  const pct = open === 0 ? 0 : percentChange(price, open);
+  drawDeltaPill(ctx, `${formatSignedPrice(animation.currency, delta)}  ·  ${formatPercent(pct)}`, 48, 262, delta >= 0);
+
+  const answerPct = open === 0 ? 0 : percentChange(end, open);
+  const answer = `${ticker} · ${formatPrice(animation.currency, open)} → ${formatPrice(animation.currency, end)} · ${formatPercent(answerPct)} ${animation.yearsLabel}`;
+  const asOf = `${formatMonthYear(date)} since ${formatMonthYear(animation.dates[0] ?? date)}`;
+  ctx.font = '500 24px Geist, sans-serif';
+  ctx.fillStyle = '#d5dbe6';
+  ctx.textAlign = 'left';
+  if (plate > 0.02) {
+    ctx.save();
+    ctx.globalAlpha = plate;
+    ctx.fillText(fitSubtitle(ctx, answer, WIDTH - 96), 48, 308);
+    ctx.restore();
   }
-  ctx.restore();
+  if (plate < 0.98) {
+    ctx.save();
+    ctx.globalAlpha = 1 - plate;
+    ctx.fillText(fitSubtitle(ctx, asOf, WIDTH - 96), 48, 308);
+    ctx.restore();
+  }
 }
 
 function drawCards(ctx: Ctx, animation: Animation, endIndex: number, frame: number): void {
@@ -283,25 +272,25 @@ function drawCards(ctx: Ctx, animation: Animation, endIndex: number, frame: numb
   const growth = growthSoFar(open, price, animation.dates[0] ?? '', animation.dates[endIndex] ?? '');
   const cards = [
     {
-      title: 'RANGE · 5Y',
+      title: `HIGH · ${windowTag(animation.dates[0] ?? '', animation.dates[endIndex] ?? '')}`,
       value: formatPrice(animation.currency, range.high),
       color: UP,
       accent: UP,
-      foot: `LO ${formatAxis(animation.currency, range.low)} · ${formatMonthStamp(range.lowDate)}`,
+      foot: `Low ${formatPrice(animation.currency, range.low)} · ${formatMonthStamp(range.lowDate)}`,
     },
     {
-      title: 'MAX DRAWDOWN',
+      title: 'MAX DROP',
       value: formatPercent(drawdown.depth),
       color: drawdown.depth < -0.005 ? DOWN : MUTED,
       accent: drawdownAccent(drawdown.current),
-      foot: `${formatAxis(animation.currency, drawdown.peak)} → ${formatAxis(animation.currency, drawdown.trough)}`,
+      foot: `${formatPrice(animation.currency, drawdown.peak)} → ${formatPrice(animation.currency, drawdown.trough)}`,
     },
     {
       title: 'CAGR',
-      value: growth.annualized ? `${formatPercent(growth.rate)} / yr` : formatPercent(growth.rate),
+      value: growth.annualized ? `${formatPercent(growth.rate)}/yr` : formatPercent(growth.rate),
       color: growth.rate >= 0 ? UP : DOWN,
       accent: growth.rate >= 0 ? UP : DOWN,
-      foot: `${formatAxis(animation.currency, open)} → ${formatAxis(animation.currency, price)} · ${growth.years.toFixed(1)}y`,
+      foot: `${formatPrice(animation.currency, open)} → ${formatPrice(animation.currency, price)} · ${growth.years.toFixed(1)}y`,
     },
   ];
   cards.forEach((card, slot) => {
@@ -337,42 +326,40 @@ function drawCard(
   fillTracked(ctx, card.title, x + 20, y + slide + 32, 1.2);
   ctx.font = '600 40px Geist, sans-serif';
   ctx.fillStyle = card.color;
-  drawTabular(ctx, card.value, x + 20, y + slide + 88);
-  ctx.font = '500 28px "Geist Mono", monospace';
+  drawTabular(ctx, fitValue(ctx, card.value, w - 40), x + 20, y + slide + 88);
+  const footSize = fitMonoSize(ctx, card.foot, w - 40, 22, 14);
+  ctx.font = `500 ${footSize}px "Geist Mono", monospace`;
   ctx.fillStyle = '#d5dbe6';
-  ctx.fillText(trimText(ctx, card.foot, w - 40), x + 20, y + slide + 140);
+  ctx.fillText(card.foot, x + 20, y + slide + 138);
   ctx.restore();
 }
 
-function drawHook(ctx: Ctx, animation: Animation, alpha: number): void {
-  const open = animation.prices[0] ?? 0;
-  const end = animation.prices[animation.prices.length - 1] ?? open;
-  const pct = open === 0 ? 0 : percentChange(end, open);
-  const above = end >= open;
-  const symbol = shortSymbol(animation.symbol);
-  const line = `${symbol}  ·  ${formatPrice(animation.currency, open)} → ${formatPrice(animation.currency, end)}`;
-  const detail = `${formatPercent(pct)} ${animation.yearsLabel}`;
-  const x = 48;
-  const y = 132;
-  const boxW = 600;
-  const boxH = 156;
-  const slide = (1 - damp(Math.min(1, alpha * 1.4))) * 16;
+function drawDeltaPill(ctx: Ctx, text: string, x: number, baseline: number, up: boolean): void {
+  ctx.font = '600 28px Geist, sans-serif';
+  const width = measureTabular(ctx, text) + 32;
+  const height = 46;
+  const top = baseline - 32;
   ctx.save();
-  ctx.globalAlpha = alpha;
-  roundRect(ctx, x, y + slide, boxW, boxH, 16);
-  ctx.fillStyle = 'rgba(7,8,11,0.9)';
+  roundRect(ctx, x, top, width, height, 23);
+  ctx.fillStyle = up ? 'rgba(61,220,151,0.18)' : 'rgba(255,93,108,0.2)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.strokeStyle = up ? 'rgba(61,220,151,0.7)' : 'rgba(255,93,108,0.75)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
+  ctx.fillStyle = up ? '#b6ffd8' : '#ffc7ce';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
-  ctx.font = '600 32px Geist, sans-serif';
-  ctx.fillStyle = INK;
-  drawTabular(ctx, trimText(ctx, line, boxW - 48), x + 24, y + slide + 64);
-  ctx.font = '600 28px Geist, sans-serif';
-  ctx.fillStyle = above ? '#b6ffd8' : '#ffc7ce';
-  ctx.fillText(detail, x + 24, y + slide + 112);
+  drawTabular(ctx, text, x + 16, baseline);
+  ctx.restore();
+}
+
+function drawSource(ctx: Ctx): void {
+  ctx.save();
+  ctx.font = '500 16px Geist, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#d5dbe6';
+  ctx.fillText('Data: Yahoo Finance', WIDTH - 48, 1064);
   ctx.restore();
 }
 
@@ -381,9 +368,8 @@ function drawSeries(ctx: Ctx, animation: Animation, playhead: number, open: numb
   const runs = splitRuns(points, open);
   const startY = yAt(open);
   ctx.save();
-  ctx.globalAlpha = alpha;
-  for (const run of runs) drawArea(ctx, run, startY);
-  for (const run of runs) drawRun(ctx, run);
+  for (const run of runs) drawArea(ctx, run, startY, alpha);
+  for (const run of runs) drawRun(ctx, run, alpha);
   ctx.restore();
 }
 
@@ -394,12 +380,13 @@ function drawUpcoming(ctx: Ctx, animation: Animation, frame: number, playhead: n
   const right = xAt(callout.anchor);
   if (right <= left + 2 || right < PLOT.x || left > PLOT.x + PLOT.w) return;
   const from = Math.max(PLOT.x, Math.min(left, right));
-  const to = Math.min(PLOT.x + PLOT.w, Math.max(left, right));
+  const to = Math.min(PLOT.x + PLOT.w - 24, Math.max(left, right));
+  const markerY = yAt(sample(animation.prices, playhead));
   ctx.save();
   ctx.fillStyle = callout.tone === 'down' ? 'rgba(255,93,108,0.14)' : callout.tone === 'up' ? 'rgba(61,220,151,0.12)' : 'rgba(255,255,255,0.08)';
-  ctx.fillRect(from, PLOT.y, to - from, PLOT.h);
+  ctx.fillRect(from, PLOT.y, Math.max(0, to - from), PLOT.h);
   ctx.fillStyle = callout.tone === 'down' ? DOWN : callout.tone === 'up' ? UP : INK;
-  ctx.fillRect(to - 1.5, PLOT.y, 3, 22);
+  ctx.fillRect(to - 1.5, markerY - 11, 3, 22);
   ctx.restore();
 }
 
@@ -419,126 +406,274 @@ function drawYearDividers(ctx: Ctx, animation: Animation): void {
   ctx.restore();
 }
 
-function drawYearLabel(ctx: Ctx, animation: Animation, endIndex: number): void {
-  const chapter = yearChapter(animation.prices, animation.dates, endIndex);
-  if (!chapter.year) return;
+type MarkKind = 'now' | 'peak' | 'low' | 'start' | 'callout';
+type SlotSide = 'above' | 'below' | 'left' | 'right' | 'aboveLeft' | 'aboveRight' | 'belowLeft' | 'belowRight';
+
+interface Mark {
+  kind: MarkKind;
+  text: string;
+  ax: number;
+  ay: number;
+  color: string;
+  accent: string | null;
+  boxed: boolean;
+  alpha: number;
+}
+
+interface PlacedMark extends Mark {
+  box: Box;
+}
+
+const LABEL_FONT = '600 18px "Geist Mono", monospace';
+const CALLOUT_FONT = '600 20px "Geist Mono", monospace';
+
+function drawAnnotations(
+  ctx: Ctx,
+  animation: Animation,
+  frame: number,
+  playhead: number,
+  open: number,
+  tip: Point | undefined,
+): void {
+  const marks = collectMarks(animation, frame, playhead, open, tip);
+  const placed: PlacedMark[] = [];
   ctx.save();
-  ctx.font = '500 18px "Geist Mono", monospace';
-  ctx.textBaseline = 'alphabetic';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = MUTED;
-  const label = `${chapter.year}`;
-  ctx.fillText(label, 56, PLOT.y + PLOT.h + 48);
-  const offset = ctx.measureText(`${label}  ·  `).width;
-  ctx.fillStyle = chapter.fraction >= 0 ? UP : DOWN;
-  drawTabular(ctx, formatPercent(chapter.fraction), 56 + offset, PLOT.y + PLOT.h + 48);
+  ctx.setLineDash([]);
+  for (const mark of marks) {
+    const samePoint =
+      mark.kind !== 'callout' &&
+      placed.some((item) => item.kind !== 'callout' && Math.hypot(item.ax - mark.ax, item.ay - mark.ay) < 16);
+    if (samePoint) continue;
+    const box = chooseSlot(ctx, mark, placed);
+    if (!box) continue;
+    placed.push({ ...mark, box });
+  }
+  for (const mark of placed) drawLeader(ctx, mark);
+  for (const mark of placed) drawMark(ctx, mark);
   ctx.restore();
 }
 
-function drawCallout(ctx: Ctx, animation: Animation, frame: number, playhead: number, open: number): void {
+function collectMarks(
+  animation: Animation,
+  frame: number,
+  playhead: number,
+  open: number,
+  tip: Point | undefined,
+): Mark[] {
+  const marks: Mark[] = [];
+  if (tip && pointInside(tip.x, tip.y)) {
+    marks.push({
+      kind: 'now',
+      text: `NOW ${formatPrice(animation.currency, tip.price)}`,
+      ax: tip.x,
+      ay: tip.y,
+      color: INK,
+      accent: null,
+      boxed: false,
+      alpha: 1,
+    });
+  }
+  pushExtreme(marks, animation, 'peak', animation.highIndex, playhead);
+  pushExtreme(marks, animation, 'low', animation.lowIndex, playhead);
+  const startY = yAt(open);
+  if (startY >= PLOT.y + 8 && startY <= PLOT.y + PLOT.h - 8) {
+    marks.push({
+      kind: 'start',
+      text: `START ${formatPrice(animation.currency, open)}`,
+      ax: PLOT.x + PLOT.w - 10,
+      ay: startY,
+      color: INK,
+      accent: null,
+      boxed: false,
+      alpha: 1,
+    });
+  }
   const callout = activeCallout(animation.schedule, frame);
-  if (!callout) return;
-  const life = (frame - callout.startFrame) / 60;
-  const remain = (callout.endFrame - frame) / 60;
-  const appear = Math.min(damp(life, 16), damp(remain, 18));
-  if (appear <= 0.02) return;
-  const arrived = playhead >= callout.anchor - 0.25;
-  const anchorX = Math.max(PLOT.x + 8, Math.min(PLOT.x + PLOT.w - 8, xAt(callout.anchor)));
-  const anchorY = arrived ? yAt(sample(animation.prices, callout.anchor)) : PLOT.y + 28;
-  ctx.save();
-  ctx.globalAlpha = appear;
-  ctx.font = '600 20px "Geist Mono", monospace';
-  const width = Math.min(560, ctx.measureText(callout.text).width + 28);
-  const height = 36;
-  const preferBelow = anchorY < PLOT.y + PLOT.h * 0.42;
-  let x = anchorX - width - 18;
-  let y = preferBelow ? anchorY + 18 : anchorY - height - 18;
-  if (x < PLOT.x + 8) x = Math.min(PLOT.x + PLOT.w - width - 8, anchorX + 18);
-  if (y < PLOT.y + 8) y = PLOT.y + 8;
-  if (y + height > PLOT.y + PLOT.h - 8) y = PLOT.y + PLOT.h - height - 8;
-  ctx.strokeStyle = 'rgba(247,248,251,0.55)';
+  if (callout) {
+    const life = (frame - callout.startFrame) / 60;
+    const remain = (callout.endFrame - frame) / 60;
+    const appear = Math.min(damp(life, 16), damp(remain, 18));
+    const rawX = xAt(callout.anchor);
+    const arrived = playhead >= callout.anchor - 0.25;
+    const anchorPrice = sample(animation.prices, arrived ? callout.anchor : playhead);
+    const rawY = arrived ? yAt(sample(animation.prices, callout.anchor)) : tip ? tip.y : yAt(anchorPrice);
+    const plotRight = PLOT.x + PLOT.w - 24;
+    const plotLeft = PLOT.x + 24;
+    const anchorX = Math.max(plotLeft, Math.min(plotRight, rawX));
+    if (appear > 0.02 && Math.abs(anchorX - rawX) <= 48) {
+      marks.push({
+        kind: 'callout',
+        text: callout.text,
+        ax: anchorX,
+        ay: Math.max(PLOT.y + 8, Math.min(PLOT.y + PLOT.h - 8, rawY)),
+        color: INK,
+        accent: callout.tone === 'down' ? DOWN : callout.tone === 'up' ? UP : 'rgba(255,255,255,0.55)',
+        boxed: true,
+        alpha: appear,
+      });
+    }
+  }
+  return marks;
+}
+
+function pushExtreme(marks: Mark[], animation: Animation, kind: 'peak' | 'low', index: number, playhead: number): void {
+  if (playhead < index + 0.5) return;
+  if (index < viewLeft - 0.5 || index > viewRight + 0.5) return;
+  const price = animation.prices[index];
+  const date = animation.dates[index];
+  if (price === undefined || !date) return;
+  const x = xAt(index);
+  const y = yAt(price);
+  if (!pointInside(x, y)) return;
+  marks.push({
+    kind,
+    text: `${kind === 'peak' ? 'PEAK' : 'LOW'} ${formatPrice(animation.currency, price)} · ${formatMonthStamp(date)}`,
+    ax: x,
+    ay: y,
+    color: kind === 'peak' ? UP : DOWN,
+    accent: null,
+    boxed: false,
+    alpha: 1,
+  });
+}
+
+function chooseSlot(ctx: Ctx, mark: Mark, placed: readonly PlacedMark[]): Box | null {
+  const size = measureMark(ctx, mark);
+  const maxLead = mark.kind === 'callout' ? 210 : 170;
+  for (const gap of [18, 42, 68]) {
+    for (const side of sideOrder(mark.kind, mark.ax)) {
+      const origin = slotOrigin(side, mark.ax, mark.ay, size.w, size.h, gap);
+      const box = { x: origin.x, y: origin.y, w: size.w, h: size.h };
+      if (!insidePlot(box)) continue;
+      if (placed.some((item) => overlaps(box, item.box, 18))) continue;
+      const edge = nearestEdge(box.x, box.y, box.w, box.h, mark.ax, mark.ay);
+      if (Math.hypot(edge.x - mark.ax, edge.y - mark.ay) > maxLead) continue;
+      if (placed.some((item) => segmentHitsBox(edge.x, edge.y, mark.ax, mark.ay, item.box, 6))) continue;
+      return box;
+    }
+  }
+  return null;
+}
+
+function measureMark(ctx: Ctx, mark: Mark): { w: number; h: number } {
+  ctx.font = mark.boxed ? CALLOUT_FONT : LABEL_FONT;
+  const textW = ctx.measureText(mark.text).width;
+  if (mark.boxed) return { w: Math.min(PLOT.w - 32, textW + 36), h: 40 };
+  return { w: textW + 10, h: 26 };
+}
+
+function sideOrder(kind: MarkKind, ax: number): SlotSide[] {
+  const towardOpen: SlotSide[] = ax > PLOT.x + PLOT.w * 0.58
+    ? ['left', 'aboveLeft', 'belowLeft', 'above', 'below', 'aboveRight', 'belowRight', 'right']
+    : ['right', 'aboveRight', 'belowRight', 'above', 'below', 'aboveLeft', 'belowLeft', 'left'];
+  if (kind === 'peak') return ['above', 'aboveLeft', 'aboveRight', 'left', 'right', 'below', 'belowLeft', 'belowRight'];
+  if (kind === 'low') return ['below', 'belowLeft', 'belowRight', 'left', 'right', 'above', 'aboveLeft', 'aboveRight'];
+  return towardOpen;
+}
+
+function slotOrigin(side: SlotSide, ax: number, ay: number, w: number, h: number, gap: number): { x: number; y: number } {
+  switch (side) {
+    case 'above':
+      return { x: ax - w / 2, y: ay - h - gap };
+    case 'below':
+      return { x: ax - w / 2, y: ay + gap };
+    case 'left':
+      return { x: ax - w - gap, y: ay - h / 2 };
+    case 'right':
+      return { x: ax + gap, y: ay - h / 2 };
+    case 'aboveLeft':
+      return { x: ax - w - gap * 0.65, y: ay - h - gap };
+    case 'aboveRight':
+      return { x: ax + gap * 0.35, y: ay - h - gap };
+    case 'belowLeft':
+      return { x: ax - w - gap * 0.65, y: ay + gap };
+    case 'belowRight':
+      return { x: ax + gap * 0.35, y: ay + gap };
+    default: {
+      const exhaustive: never = side;
+      return exhaustive;
+    }
+  }
+}
+
+function drawLeader(ctx: Ctx, mark: PlacedMark): void {
+  const edge = nearestEdge(mark.box.x, mark.box.y, mark.box.w, mark.box.h, mark.ax, mark.ay);
+  const dx = mark.ax - edge.x;
+  const dy = mark.ay - edge.y;
+  const length = Math.hypot(dx, dy);
+  if (length < 10) return;
+  const trim = Math.min(9, length * 0.3);
+  ctx.globalAlpha = mark.alpha;
+  ctx.strokeStyle = 'rgba(247,248,251,0.78)';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(nearestEdge(x, y, width, height, anchorX, anchorY).x, nearestEdge(x, y, width, height, anchorX, anchorY).y);
-  const edge = nearestEdge(x, y, width, height, anchorX, anchorY);
   ctx.moveTo(edge.x, edge.y);
-  ctx.lineTo(anchorX, anchorY);
+  ctx.lineTo(mark.ax - (dx / length) * trim, mark.ay - (dy / length) * trim);
   ctx.stroke();
-  roundRect(ctx, x, y + (1 - appear) * 8, width, height, 10);
-  ctx.fillStyle = 'rgba(7,8,11,0.92)';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = callout.tone === 'down' ? DOWN : callout.tone === 'up' ? UP : 'rgba(255,255,255,0.55)';
-  ctx.fillRect(x, y + (1 - appear) * 8, 3, height);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = INK;
-  ctx.fillText(callout.text, x + 14, y + (1 - appear) * 8 + height / 2);
-  if (arrived) {
-    ctx.beginPath();
-    ctx.fillStyle = priceTone(sample(animation.prices, callout.anchor), open);
-    ctx.arc(anchorX, anchorY, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
 }
 
-function drawTimebar(ctx: Ctx, animation: Animation, playhead: number): void {
-  const count = Math.max(1, animation.prices.length - 1);
-  const progress = Math.max(0, Math.min(1, playhead / count));
-  const x = 48;
-  const w = 1824;
-  const y = TIME_Y;
-  ctx.fillStyle = 'rgba(255,255,255,0.12)';
-  roundRect(ctx, x, y, w, 4, 2);
-  ctx.fill();
-  ctx.fillStyle = 'rgba(247,248,251,0.92)';
-  roundRect(ctx, x, y, Math.max(4, w * progress), 4, 2);
-  ctx.fill();
-  const knob = x + w * progress;
-  ctx.beginPath();
-  ctx.fillStyle = INK;
-  ctx.arc(knob, y + 2, 6, 0, Math.PI * 2);
-  ctx.fill();
-
-  const dateIndex = Math.min(animation.dates.length - 1, Math.max(0, Math.round(playhead)));
-  const current = formatLongDate(animation.dates[dateIndex] ?? '');
-  const start = formatMonthYear(animation.dates[0] ?? '');
-  const end = formatMonthYear(animation.dates[animation.dates.length - 1] ?? '');
-  ctx.font = '500 16px "Geist Mono", monospace';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = MUTED;
-  if (progress > 0.12) {
+function drawMark(ctx: Ctx, mark: PlacedMark): void {
+  ctx.globalAlpha = mark.alpha;
+  if (mark.boxed) {
+    roundRect(ctx, mark.box.x, mark.box.y, mark.box.w, mark.box.h, 10);
+    ctx.fillStyle = 'rgba(7,8,11,0.94)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = mark.accent ?? INK;
+    ctx.fillRect(mark.box.x, mark.box.y, 3, mark.box.h);
+    ctx.font = CALLOUT_FONT;
     ctx.textAlign = 'left';
-    ctx.fillText(start, x, y + 28);
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = INK;
+    ctx.fillText(mark.text, mark.box.x + 16, mark.box.y + mark.box.h / 2);
+    return;
   }
-  if (progress < 0.88) {
-    ctx.textAlign = 'right';
-    ctx.fillText(end, x + w, y + 28);
+  ctx.font = LABEL_FONT;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.lineWidth = 5;
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(7,8,11,0.94)';
+  ctx.strokeText(mark.text, mark.box.x + 5, mark.box.y + mark.box.h / 2);
+  ctx.fillStyle = mark.color;
+  ctx.fillText(mark.text, mark.box.x + 5, mark.box.y + mark.box.h / 2);
+}
+
+function insidePlot(box: Box): boolean {
+  return box.x >= PLOT.x + 8 && box.y >= PLOT.y + 8 && box.x + box.w <= PLOT.x + PLOT.w - 8 && box.y + box.h <= PLOT.y + PLOT.h - 8;
+}
+
+function pointInside(x: number, y: number): boolean {
+  return x >= PLOT.x + 8 && x <= PLOT.x + PLOT.w - 8 && y >= PLOT.y + 8 && y <= PLOT.y + PLOT.h - 8;
+}
+
+function overlaps(a: Box, b: Box, pad: number): boolean {
+  return a.x < b.x + b.w + pad && a.x + a.w + pad > b.x && a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
+}
+
+function segmentHitsBox(x1: number, y1: number, x2: number, y2: number, box: Box, pad: number): boolean {
+  const left = box.x - pad;
+  const right = box.x + box.w + pad;
+  const top = box.y - pad;
+  const bottom = box.y + box.h + pad;
+  for (let step = 2; step < 12; step += 1) {
+    const t = step / 12;
+    const x = x1 + (x2 - x1) * t;
+    const y = y1 + (y2 - y1) * t;
+    if (x >= left && x <= right && y >= top && y <= bottom) return true;
   }
-  ctx.fillStyle = INK;
-  ctx.textAlign = 'center';
-  const labelX = Math.max(x + 80, Math.min(x + w - 80, knob));
-  ctx.fillText(current, labelX, y - 12);
+  return false;
 }
 
 function drawGrid(ctx: Ctx): void {
-  const linear = viewLog < 0.98 ? linearTicks() : [];
-  const logged = viewLog > 0.02 ? logTicks() : [];
   ctx.save();
   ctx.lineWidth = 1;
   ctx.setLineDash([]);
   ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  if (linear.length > 0) {
-    ctx.globalAlpha = 1 - viewLog;
-    for (const tick of linear) strokeGrid(ctx, tick.y);
-  }
-  if (logged.length > 0) {
-    ctx.globalAlpha = viewLog;
-    for (const tick of logged) strokeGrid(ctx, tick.y);
-  }
+  ctx.globalAlpha = 1;
+  for (const tick of linearTicks()) strokeGrid(ctx, tick.y);
   ctx.restore();
 }
 
@@ -550,23 +685,11 @@ function strokeGrid(ctx: Ctx, y: number): void {
 }
 
 function drawYLabels(ctx: Ctx, currency: string): void {
-  const ticks = viewLog > 0.5 ? logTicks() : linearTicks();
-  ctx.font = '500 20px "Geist Mono", monospace';
+  ctx.font = '500 26px "Geist Mono", monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#d5dbe6';
-  for (const tick of ticks) ctx.fillText(formatAxis(currency, tick.value), PLOT.x - 12, tick.y);
-}
-
-function drawLogLabel(ctx: Ctx): void {
-  ctx.save();
-  ctx.globalAlpha = Math.min(1, (viewLog - 0.55) / 0.3);
-  ctx.font = '500 16px "Geist Mono", monospace';
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = MUTED;
-  ctx.fillText('log scale', PLOT.x + PLOT.w - 12, PLOT.y + 28);
-  ctx.restore();
+  ctx.fillStyle = INK;
+  for (const tick of linearTicks()) ctx.fillText(formatAxis(currency, tick.value), PLOT.x - 16, tick.y);
 }
 
 function linearTicks(): { value: number; y: number }[] {
@@ -579,26 +702,12 @@ function linearTicks(): { value: number; y: number }[] {
   return placeTicks(values);
 }
 
-function logTicks(): { value: number; y: number }[] {
-  if (!(viewLo > 0) || !(viewHi > viewLo)) return [];
-  const values: number[] = [];
-  const startExp = Math.floor(Math.log10(viewLo));
-  const endExp = Math.ceil(Math.log10(viewHi));
-  for (let exp = startExp; exp <= endExp; exp += 1) {
-    for (const base of [1, 2, 5]) {
-      const value = base * 10 ** exp;
-      if (value > viewLo && value < viewHi) values.push(value);
-    }
-  }
-  return placeTicks(values);
-}
-
 function placeTicks(values: number[]): { value: number; y: number }[] {
   const placed: { value: number; y: number }[] = [];
   for (const value of values) {
     const y = yAt(value);
-    if (y < PLOT.y + 16 || y > PLOT.y + PLOT.h - 16) continue;
-    if (placed.some((tick) => Math.abs(tick.y - y) < 36)) continue;
+    if (y < PLOT.y + 20 || y > PLOT.y + PLOT.h - 20) continue;
+    if (placed.some((tick) => Math.abs(tick.y - y) < 52)) continue;
     placed.push({ value, y });
   }
   return placed;
@@ -628,61 +737,7 @@ function drawStartLine(ctx: Ctx, open: number): void {
   ctx.restore();
 }
 
-function drawStartLabel(ctx: Ctx, currency: string, open: number): void {
-  const startY = yAt(open);
-  if (startY < PLOT.y + 8 || startY > PLOT.y + PLOT.h - 8) return;
-  const text = `START ${formatPrice(currency, open)}`;
-  ctx.font = '600 18px "Geist Mono", monospace';
-  ctx.textAlign = 'right';
-  ctx.fillStyle = INK;
-  const y = startY > PLOT.y + 36 ? startY - 10 : startY + 22;
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText(text, PLOT.x + PLOT.w - 12, y);
-}
-
-function drawExtremeLabel(ctx: Ctx, animation: Animation, kind: 'PEAK' | 'LOW', index: number, playhead: number): void {
-  if (playhead < index + 0.5 || Math.abs(playhead - index) < 3) return;
-  if (index < viewLeft - 0.5 || index > viewRight + 0.5) return;
-  const price = animation.prices[index];
-  const date = animation.dates[index];
-  if (price === undefined || !date) return;
-  const x = xAt(index);
-  const y = yAt(price);
-  if (x < PLOT.x + 8 || x > PLOT.x + PLOT.w - 8 || y < PLOT.y + 8 || y > PLOT.y + PLOT.h - 8) return;
-  const text = `${kind} ${formatPrice(animation.currency, price)} · ${formatMonthStamp(date)}`;
-  ctx.font = '600 18px "Geist Mono", monospace';
-  const width = ctx.measureText(text).width;
-  let textX = x - width / 2;
-  const above = kind === 'PEAK';
-  let textY = above ? y - 18 : y + 28;
-  if (textX < PLOT.x + 8) textX = PLOT.x + 8;
-  if (textX + width > PLOT.x + PLOT.w - 8) textX = PLOT.x + PLOT.w - 8 - width;
-  if (textY < PLOT.y + 18) textY = y + 28;
-  if (textY > PLOT.y + PLOT.h - 8) textY = y - 18;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = kind === 'PEAK' ? UP : DOWN;
-  ctx.fillText(text, textX, textY);
-}
-
-function drawNowLabel(ctx: Ctx, currency: string, tip: Point): void {
-  const text = `NOW ${formatPrice(currency, tip.price)}`;
-  ctx.font = '600 18px "Geist Mono", monospace';
-  const width = ctx.measureText(text).width;
-  const placeLeft = tip.x > PLOT.x + PLOT.w * 0.62;
-  let x = placeLeft ? tip.x - width - 16 : tip.x + 16;
-  let y = tip.y - 22;
-  if (x < PLOT.x + 8) x = tip.x + 16;
-  if (x + width > PLOT.x + PLOT.w - 8) x = tip.x - width - 16;
-  if (y < PLOT.y + 18) y = tip.y + 28;
-  if (y > PLOT.y + PLOT.h - 8) y = tip.y - 22;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = INK;
-  ctx.fillText(text, x, y);
-}
-
-function drawArea(ctx: Ctx, run: Run, startY: number): void {
+function drawArea(ctx: Ctx, run: Run, startY: number, alpha: number): void {
   if (run.points.length < 2) return;
   const first = run.points[0];
   const last = run.points[run.points.length - 1];
@@ -692,19 +747,28 @@ function drawArea(ctx: Ctx, run: Run, startY: number): void {
   ctx.lineTo(last.x, startY);
   ctx.lineTo(first.x, startY);
   ctx.closePath();
-  ctx.fillStyle = run.above ? 'rgba(61,220,151,0.18)' : 'rgba(255,93,108,0.16)';
+  ctx.globalAlpha = alpha * (run.above ? 0.3 : 0.32);
+  ctx.fillStyle = run.above ? UP : DOWN;
   ctx.fill();
 }
 
-function drawRun(ctx: Ctx, run: Run): void {
+function drawRun(ctx: Ctx, run: Run, alpha: number): void {
   if (run.points.length < 2) return;
-  ctx.beginPath();
-  traceCurve(ctx, run.points);
+  const layers = [
+    { width: 26, alpha: alpha * 0.22 },
+    { width: 14, alpha: alpha * 0.45 },
+    { width: 7, alpha },
+  ];
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.strokeStyle = run.above ? UP : DOWN;
-  ctx.lineWidth = 5;
-  ctx.stroke();
+  for (const layer of layers) {
+    ctx.beginPath();
+    traceCurve(ctx, run.points);
+    ctx.lineWidth = layer.width;
+    ctx.globalAlpha = layer.alpha;
+    ctx.stroke();
+  }
 }
 
 function drawHeadDot(ctx: Ctx, tip: Point, open: number): void {
@@ -734,8 +798,8 @@ function drawExtremeDot(ctx: Ctx, animation: Animation, index: number, playhead:
 function drawXLabels(ctx: Ctx, animation: Animation): void {
   const dates = animation.dates;
   if (dates.length === 0) return;
-  ctx.font = '500 18px "Geist Mono", monospace';
-  ctx.fillStyle = '#d5dbe6';
+  ctx.font = '500 22px "Geist Mono", monospace';
+  ctx.fillStyle = INK;
   ctx.textBaseline = 'top';
   const y = PLOT.y + PLOT.h + 16;
   const fractions = [0, 0.25, 0.5, 0.75, 1];
@@ -787,6 +851,7 @@ function collectPoints(animation: Animation, playhead: number, open: number): Po
 function splitRuns(points: readonly Point[], open: number): Run[] {
   const first = points[0];
   if (!first) return [];
+  const band = Math.max(1e-4, Math.abs(open) * 0.008);
   const runs: Run[] = [];
   let batch: Point[] = [first];
   let above = first.price >= open;
@@ -794,22 +859,22 @@ function splitRuns(points: readonly Point[], open: number): Run[] {
     const prev = points[i - 1];
     const point = points[i];
     if (!prev || !point) continue;
-    const prevAbove = prev.price >= open;
-    const pointAbove = point.price >= open;
-    if (prevAbove !== pointAbove && point.price !== prev.price) {
-      const t = (open - prev.price) / (point.price - prev.price);
+    const nextAbove = above ? point.price >= open - band : point.price > open + band;
+    if (nextAbove !== above && point.price !== prev.price) {
+      const threshold = above ? open - band : open + band;
+      const span = point.price - prev.price;
+      const t = span === 0 ? 1 : Math.max(0, Math.min(1, (threshold - prev.price) / span));
       const mid: Point = {
         x: prev.x + (point.x - prev.x) * t,
         y: prev.y + (point.y - prev.y) * t,
-        price: open,
+        price: threshold,
       };
       batch.push(mid);
-      runs.push({ above: prevAbove, points: batch });
+      runs.push({ above, points: batch });
       batch = [mid, point];
-      above = pointAbove;
+      above = nextAbove;
     } else {
       batch.push(point);
-      above = pointAbove;
     }
   }
   runs.push({ above, points: batch });
@@ -877,6 +942,10 @@ function buildView(prices: readonly number[], reveal: Float64Array, schedule: re
     velocityLeft = stepLeft.velocity;
     right = stepRight.value;
     velocityRight = stepRight.velocity;
+    if (target.right > playhead && target.right > right) {
+      right = target.right;
+      velocityRight = 0;
+    }
     if (playhead > right) {
       left += playhead - right;
       right = playhead;
@@ -1045,13 +1114,6 @@ function fullDomain(prices: readonly number[]): { lo: number; hi: number; log: n
     if (price < min) min = price;
     if (price > max) max = price;
   }
-  const safeMin = Math.max(min, 1e-4);
-  if (safeMin > 0 && max / safeMin > 5) {
-    const logMin = Math.log(safeMin);
-    const logMax = Math.log(Math.max(max, safeMin * 1.01));
-    const pad = Math.max(0.06, (logMax - logMin) * 0.14);
-    return { lo: Math.exp(logMin - pad), hi: Math.exp(logMax + pad), log: 1 };
-  }
   const padded = padRange(min, max);
   return { lo: padded.lo, hi: padded.hi, log: 0 };
 }
@@ -1120,14 +1182,7 @@ function xAt(index: number): number {
 }
 
 function yAt(price: number): number {
-  let unit: number;
-  if (viewLog > 0.001 && viewLo > 0 && viewHi > viewLo && price > 0) {
-    const linear = (price - viewLo) / (viewHi - viewLo);
-    const logged = (Math.log(price) - Math.log(viewLo)) / (Math.log(viewHi) - Math.log(viewLo));
-    unit = linear * (1 - viewLog) + logged * viewLog;
-  } else {
-    unit = (price - viewLo) / Math.max(1e-6, viewHi - viewLo);
-  }
+  const unit = (price - viewLo) / Math.max(1e-6, viewHi - viewLo);
   return PLOT.y + PLOT.h - unit * PLOT.h;
 }
 
@@ -1217,6 +1272,55 @@ function fillTracked(ctx: Ctx, text: string, x: number, y: number, tracking: num
     ctx.fillText(char, cursor, y);
     cursor += ctx.measureText(char).width + tracking;
   }
+}
+
+function windowTag(start: string, end: string): string {
+  const from = Date.parse(`${start}T00:00:00Z`);
+  const to = Date.parse(`${end}T00:00:00Z`);
+  const days = Number.isFinite(from) && Number.isFinite(to) ? Math.max(0, Math.round((to - from) / 86_400_000)) : 0;
+  if (days < 45) return `${Math.max(1, days)}D`;
+  if (days < 330) return `${Math.max(1, Math.round(days / 30.4375))}M`;
+  return `${Math.max(1, Math.round(days / 365.25))}Y`;
+}
+
+function fitSubtitle(ctx: Ctx, text: string, maxWidth: number): string {
+  let size = 24;
+  while (size > 16) {
+    ctx.font = `500 ${size}px Geist, sans-serif`;
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    size -= 1;
+  }
+  ctx.font = '500 16px Geist, sans-serif';
+  return text;
+}
+
+function fitValue(ctx: Ctx, text: string, maxWidth: number): string {
+  let size = 40;
+  while (size > 26) {
+    ctx.font = `600 ${size}px Geist, sans-serif`;
+    if (measureTabular(ctx, text) <= maxWidth) return text;
+    size -= 1;
+  }
+  ctx.font = '600 26px Geist, sans-serif';
+  return text;
+}
+
+function fitMonoSize(ctx: Ctx, text: string, maxWidth: number, start: number, floor: number): number {
+  let size = start;
+  while (size > floor) {
+    ctx.font = `500 ${size}px "Geist Mono", monospace`;
+    if (ctx.measureText(text).width <= maxWidth) return size;
+    size -= 1;
+  }
+  ctx.font = `500 ${floor}px "Geist Mono", monospace`;
+  return floor;
+}
+
+function measureTabular(ctx: Ctx, text: string): number {
+  const digit = ctx.measureText('0').width;
+  let width = 0;
+  for (const char of text) width += char >= '0' && char <= '9' ? digit : ctx.measureText(char).width;
+  return width;
 }
 
 function trimText(ctx: Ctx, text: string, maxWidth: number): string {

@@ -1,4 +1,4 @@
-import { mkdir, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import puppeteer from 'puppeteer-core';
 
@@ -20,6 +20,18 @@ const browser = await puppeteer.launch({
   ],
 });
 const page = await browser.newPage();
+const client = await page.createCDPSession();
+await client.send('Browser.setDownloadBehavior', {
+  behavior: 'allow',
+  downloadPath: outDir,
+  eventsEnabled: true,
+});
+client.on('Browser.downloadWillBegin', (event) => {
+  console.log('download begin', event.suggestedFilename, event.url?.slice(0, 32));
+});
+client.on('Browser.downloadProgress', (event) => {
+  if (event.state !== 'inProgress') console.log('download', event.state, event.receivedBytes);
+});
 await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 2 });
 page.setDefaultTimeout(540_000);
 
@@ -111,13 +123,25 @@ async function waitForExport(page, directory, before, readyStatus) {
     const file = await findNewMedia(directory, before);
     if (status.startsWith('Saved ')) {
       const named = path.join(directory, status.slice('Saved '.length).trim());
-      return `${status} -> ${file ?? named}`;
+      const ready = await stableMedia(file ?? named);
+      if (ready) return `${status} -> ${ready}`;
     }
     const encoding = status.startsWith('Encoding') || status.startsWith('Loading') || status === readyStatus;
     if (!encoding && stuck > 6) throw new Error(status || 'export failed');
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
   throw new Error(`export timed out at: ${last}`);
+}
+
+async function stableMedia(file) {
+  let previous = -1;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const info = await stat(file).catch(() => null);
+    if (info && info.size > 100_000 && info.size === previous) return file;
+    previous = info?.size ?? -1;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  return null;
 }
 
 async function findNewMedia(directory, before) {

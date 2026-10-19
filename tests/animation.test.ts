@@ -84,7 +84,7 @@ describe('price animation', () => {
     expect(longer.logMix[early]).toBe(0);
     expect(longer.windowLeft[FRAME_COUNT - 1]).toBe(0);
     expect(longer.windowRight[FRAME_COUNT - 1]).toBeCloseTo(399);
-    expect(longer.logMix[FRAME_COUNT - 1]).toBe(1);
+    expect(longer.logMix[FRAME_COUNT - 1]).toBe(0);
     const low = Math.min(...longer.prices);
     const high = Math.max(...longer.prices);
     expect(longer.yMin[FRAME_COUNT - 1] ?? 0).toBeLessThan(low);
