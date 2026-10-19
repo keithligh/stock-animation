@@ -23,7 +23,8 @@ run_worker_first = ["/v1/*"]
 [vars]
 # Comma-separated browser origins allowed to read the relay cross-origin.
 # Same-origin requests, including the deployed app, are allowed without being listed.
-ALLOWED_ORIGIN = "http://localhost:5173,http://127.0.0.1:5173"
+# The deployed origin is listed so a cross-origin read of this host stays allowed.
+ALLOWED_ORIGIN = "https://stock-animation.keith-li.workers.dev,http://localhost:5173,http://127.0.0.1:5173"
 
 # 60 misses per minute per key. Keys used: `ip:<addr>` and `global`.
 # Cloudflare enforces this per location. namespace_id is account-unique;

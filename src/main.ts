@@ -31,11 +31,16 @@ const status: HTMLParagraphElement = statusLine;
 let animation: Animation | null = null;
 let playing = false;
 let clockStart = 0;
+let generation = 0;
 let exportAbort: AbortController | null = null;
 let loadAbort: AbortController | null = null;
 
+// Download stays hidden until the current ticker has played through to the last frame.
+// Loading another ticker clears the stage and hides the button again.
+saveButton.hidden = true;
+
 void document.fonts.ready.then(() => {
-  drawIdle();
+  if (!animation && !playing) drawBlank();
 });
 
 form.addEventListener('submit', (event) => {
@@ -68,15 +73,10 @@ window.__anim = {
   },
 };
 
-function drawIdle(): void {
+function drawBlank(): void {
   context.setTransform(stage.width / 1920, 0, 0, stage.height / 1080, 0, 0);
   context.fillStyle = '#07080b';
   context.fillRect(0, 0, 1920, 1080);
-  context.fillStyle = '#9aa3b5';
-  context.font = '500 28px Geist, sans-serif';
-  context.textAlign = 'left';
-  context.textBaseline = 'middle';
-  context.fillText('Enter a ticker to play its share price.', 88, 540);
   context.setTransform(1, 0, 0, 1, 0, 0);
 }
 
@@ -91,10 +91,13 @@ async function loadTicker(raw: string): Promise<void> {
   loadAbort?.abort();
   const abort = new AbortController();
   loadAbort = abort;
+  generation += 1;
   playing = false;
   animation = null;
+  saveButton.hidden = true;
   saveButton.disabled = true;
   document.body.dataset.state = 'loading';
+  drawBlank();
   setStatus(`Loading ${display}…`);
   try {
     const session = lastCompletedSession(mapped.market, new Date());
@@ -109,9 +112,10 @@ async function loadTicker(raw: string): Promise<void> {
     });
     if (abort.signal.aborted) return;
     animation = next;
-    saveButton.disabled = false;
+    saveButton.hidden = true;
+    saveButton.disabled = true;
     document.body.dataset.state = 'ready';
-    setStatus(`${labelFor(next.symbol)} · ${next.name} · ${next.prices.length.toLocaleString('en-US')} sessions`);
+    setStatus(`${labelFor(next.symbol)} · ${next.name}`);
     startPlayback();
   } catch (error) {
     if (abort.signal.aborted) return;
@@ -146,20 +150,28 @@ async function fetchChart(symbol: string, session: string, signal: AbortSignal):
 }
 
 function startPlayback(): void {
+  const gen = generation;
   playing = true;
   clockStart = performance.now();
-  requestAnimationFrame(tick);
+  requestAnimationFrame((now) => {
+    if (gen !== generation) return;
+    tick(now, gen);
+  });
 }
 
-function tick(now: number): void {
-  if (!playing || !animation) return;
+function tick(now: number, gen: number): void {
+  if (gen !== generation || !playing || !animation) return;
   const frame = Math.min(FRAME_COUNT - 1, Math.floor(((now - clockStart) / 1000) * 60));
+  if (gen !== generation || !playing || !animation) return;
   drawFrame(context, animation, frame);
   if (frame >= FRAME_COUNT - 1) {
     playing = false;
+    document.body.dataset.state = 'played';
+    saveButton.hidden = false;
+    saveButton.disabled = false;
     return;
   }
-  requestAnimationFrame(tick);
+  requestAnimationFrame((next) => tick(next, gen));
 }
 
 async function download(current: Animation): Promise<void> {

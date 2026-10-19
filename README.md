@@ -2,6 +2,8 @@
 
 Enter a ticker. The page plays five years of that stock's share price, then downloads an MP4 encoded in the browser (1920×1080, 60 fps, 30 seconds).
 
+Download MP4 stays hidden until that ticker's animation has played through once. Starting another ticker clears the chart immediately and hides the button until the new play finishes. The chart's data line is Yahoo Finance.
+
 ```bash
 npm install
 npm test

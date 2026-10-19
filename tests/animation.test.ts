@@ -1,7 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { percentChange } from '../shared/model';
-import { formatPercent, formatPrice } from '../src/insights';
-import { ESTABLISH_END, FRAME_COUNT, HOOK_END, PLAY_END, REWIND_END, buildAnimation, frameReading, priceAt } from '../src/render';
+import { formatPercent, roundMoney } from '../src/insights';
+import {
+  ESTABLISH_END,
+  FRAME_COUNT,
+  HOOK_END,
+  PLAY_END,
+  PLOT_FRAME,
+  REWIND_END,
+  RIGHT_PAD_RATIO,
+  buildAnimation,
+  frameReadout,
+  indexToX,
+  placeMarkerBoxes,
+  priceAt,
+  type Animation,
+} from '../src/render';
 
 const rising = {
   displaySymbol: 'NVDA.US',
@@ -105,32 +119,115 @@ describe('price animation', () => {
     expect(flat.yMax[FRAME_COUNT - 1] ?? 0).toBeGreaterThan(Math.max(...flat.prices));
   });
 
-  it('uses one revealed price for the hero, the cards, and a drawdown callout', () => {
-    const crash = buildAnimation({
+  it('reads hero, cards, and callouts from the same revealed prices', () => {
+    const start = Date.parse('2021-10-01T00:00:00Z');
+    const bars = Array.from({ length: 180 }, (_, index) => {
+      let close = 100;
+      if (index < 40) close = 100 + index;
+      else if (index < 110) close = 139 - (index - 40) * 1.6;
+      else close = 27 + (index - 110) * 0.8;
+      return {
+        date: new Date(start + index * 86_400_000).toISOString().slice(0, 10),
+        close,
+      };
+    });
+    const animation = buildAnimation({
       displaySymbol: 'NVDA.US',
       name: 'NVIDIA',
       currency: 'USD',
-      bars: Array.from({ length: 160 }, (_, index) => ({
-        date: new Date(Date.UTC(2024, 0, 1 + index)).toISOString().slice(0, 10),
-        close: index < 40 ? 80 : index < 100 ? 80 - (index - 40) * 0.9 : 26 + (index - 100) * 0.4,
-      })),
+      bars,
     });
-    let sawCallout = false;
-    for (let frame = 0; frame < FRAME_COUNT; frame += 1) {
-      const reading = frameReading(crash, frame);
-      expect(reading.cagrTo).toBe(reading.price);
-      expect(reading.price).toBe(priceAt(crash, frame));
-      expect(formatPrice('USD', reading.cagrTo)).toBe(formatPrice('USD', reading.price));
-      expect(reading.low).toBeLessThanOrEqual(reading.price + 1e-6);
-      expect(reading.high).toBeGreaterThanOrEqual(reading.price - 1e-6);
-      expect(reading.low).toBeLessThanOrEqual(reading.dropTrough + 1e-6);
-      if (reading.calloutDrop !== null) {
-        sawCallout = true;
-        expect(reading.calloutDrop).toBe(reading.drop);
-        expect(reading.calloutText?.startsWith(formatPercent(reading.drop))).toBe(true);
-      }
+    const frames = [0, 72, HOOK_END, REWIND_END, ESTABLISH_END, 480, 720, 960, 1200, PLAY_END, FRAME_COUNT - 1];
+    let sawDrawdown = false;
+    for (const frame of frames) {
+      assertOneReadout(animation, frame);
+      expect(animation.windowLeft[frame]).toBe(0);
+      expect(animation.yMin[frame] ?? 0).toBeLessThanOrEqual((animation.prices[0] ?? 0) + 1e-6);
+      expect(animation.yMax[frame] ?? 0).toBeGreaterThanOrEqual((animation.prices[0] ?? 0) - 1e-6);
     }
-    expect(sawCallout).toBe(true);
+    for (let frame = ESTABLISH_END; frame < PLAY_END; frame += 12) {
+      const read = frameReadout(animation, frame);
+      assertOneReadout(animation, frame);
+      if (read.calloutKind === 'drawdown') {
+        sawDrawdown = true;
+        expect(read.calloutFraction).toBeCloseTo(read.drop);
+        expect(read.calloutText?.startsWith(formatPercent(read.drop))).toBe(true);
+      }
+      expect(animation.windowLeft[frame]).toBe(0);
+      expect(animation.windowRight[frame] ?? 0).toBeGreaterThanOrEqual((animation.reveal[frame] ?? 0) - 0.05);
+    }
+    expect(sawDrawdown).toBe(true);
+    const final = frameReadout(animation, FRAME_COUNT - 1);
+    expect(final.cagrText.endsWith('/yr')).toBe(true);
+    expect(final.years).toBeGreaterThan(0.4);
+    const plain = final.open === 0 ? 0 : final.price / final.open - 1;
+    expect(final.cagr).toBeCloseTo((final.price / final.open) ** (1 / final.years) - 1);
+    expect(Math.abs(final.cagr - plain)).toBeGreaterThan(0.05);
+  });
+
+  it('keeps about 9% of the plot clear to the right of the endpoint', () => {
+    const x = indexToX(39, 0, 39);
+    const pad = (PLOT_FRAME.x + PLOT_FRAME.w - x) / PLOT_FRAME.w;
+    expect(pad).toBeGreaterThan(0.08);
+    expect(pad).toBeLessThan(0.1);
+    expect(RIGHT_PAD_RATIO).toBeCloseTo(0.09);
+  });
+
+  it('places one label per anchor and keeps callouts off the line', () => {
+    const bounds = { x: 0, y: 0, w: 1000, h: 600 };
+    const samePoint = placeMarkerBoxes(
+      [
+        { kind: 'now', ax: 800, ay: 120, w: 140, h: 26 },
+        { kind: 'peak', ax: 806, ay: 126, w: 180, h: 26 },
+      ],
+      [],
+      bounds,
+    );
+    expect(samePoint[0]).not.toBeNull();
+    expect(samePoint[1]).toBeNull();
+
+    const end = placeMarkerBoxes(
+      [
+        { kind: 'now', ax: 860, ay: 140, w: 150, h: 26 },
+        { kind: 'peak', ax: 790, ay: 70, w: 200, h: 26 },
+        { kind: 'start', ax: 48, ay: 420, w: 150, h: 26 },
+      ],
+      [{ x1: 48, y1: 420, x2: 860, y2: 140 }],
+      bounds,
+    );
+    expect(end.every((box) => box !== null)).toBe(true);
+    expect(boxesOverlap(end[0], end[1])).toBe(false);
+    expect(boxesOverlap(end[0], end[2])).toBe(false);
+    expect(boxesOverlap(end[1], end[2])).toBe(false);
+
+    const callout = placeMarkerBoxes(
+      [{ kind: 'callout', ax: 700, ay: 300, w: 220, h: 40 }],
+      [{ x1: 0, y1: 300, x2: 1000, y2: 300 }],
+      bounds,
+    );
+    const box = callout[0];
+    expect(box).not.toBeNull();
+    if (!box) return;
+    expect(box.y + box.h < 300 - 4 || box.y > 300 + 4).toBe(true);
+    expect(leadTo(box, 700, 300)).toBeLessThanOrEqual(108);
+
+    const blocked: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    for (let y = 270; y <= 480; y += 8) blocked.push({ x1: 360, y1: y, x2: 794, y2: y });
+    const parked = placeMarkerBoxes([{ kind: 'callout', ax: 700, ay: 400, w: 240, h: 40 }], blocked, {
+      x: 0,
+      y: 0,
+      w: 800,
+      h: 500,
+    });
+    const parkedBox = parked[0];
+    expect(parkedBox).not.toBeNull();
+    if (!parkedBox) return;
+    expect(leadTo(parkedBox, 700, 400)).toBeGreaterThan(108);
+    expect(rectsOverlap(parkedBox, { x: 360, y: 270, w: 434, h: 210 }, 0)).toBe(false);
+    expect(parkedBox.x).toBeGreaterThanOrEqual(6);
+    expect(parkedBox.y).toBeGreaterThanOrEqual(6);
+    expect(parkedBox.x + parkedBox.w).toBeLessThanOrEqual(794);
+    expect(parkedBox.y + parkedBox.h).toBeLessThanOrEqual(494);
   });
 
   it('rejects a single close', () => {
@@ -144,3 +241,43 @@ describe('price animation', () => {
     ).toThrow(/two closing/);
   });
 });
+
+function assertOneReadout(animation: Animation, frame: number): void {
+  const read = frameReadout(animation, frame);
+  expect(read.price).toBe(roundMoney(priceAt(animation, frame)));
+  expect(read.price).toBe(roundMoney(read.price));
+  expect(read.open).toBe(roundMoney(read.open));
+  expect(read.high).toBe(roundMoney(read.high));
+  expect(read.low).toBe(roundMoney(read.low));
+  expect(read.dropPeak).toBe(roundMoney(read.dropPeak));
+  expect(read.dropTrough).toBe(roundMoney(read.dropTrough));
+  expect(read.delta).toBe(roundMoney(read.price - read.open));
+  expect(read.high).toBeGreaterThanOrEqual(read.price);
+  expect(read.low).toBeLessThanOrEqual(read.price);
+  expect(read.dropPeak).toBeGreaterThan(0);
+  expect(read.drop).toBeCloseTo(read.dropTrough / read.dropPeak - 1, 8);
+  expect(read.change).toBeCloseTo(read.open === 0 ? 0 : read.price / read.open - 1, 8);
+  expect(read.cagrText).toBe(`${formatPercent(read.cagr)}/yr`);
+}
+
+function leadTo(box: { x: number; y: number; w: number; h: number }, ax: number, ay: number): number {
+  const x = Math.max(box.x, Math.min(ax, box.x + box.w));
+  const y = Math.max(box.y, Math.min(ay, box.y + box.h));
+  return Math.hypot(x - ax, y - ay);
+}
+
+function rectsOverlap(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+  pad: number,
+): boolean {
+  return a.x < b.x + b.w + pad && a.x + a.w + pad > b.x && a.y < b.y + b.h + pad && a.y + a.h + pad > b.y;
+}
+
+function boxesOverlap(
+  a: { x: number; y: number; w: number; h: number } | null,
+  b: { x: number; y: number; w: number; h: number } | null,
+): boolean {
+  if (!a || !b) return false;
+  return a.x < b.x + b.w + 8 && a.x + a.w + 8 > b.x && a.y < b.y + b.h + 8 && a.y + a.h + 8 > b.y;
+}

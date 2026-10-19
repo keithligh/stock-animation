@@ -133,9 +133,9 @@ export function maxDrawdownSoFar(prices: readonly number[], dates: readonly stri
 
 export function growthSoFar(startPrice: number, endPrice: number, startDate: string, endDate: string): GrowthSoFar {
   const years = Math.max(0, daysBetween(startDate, endDate) / 365.25);
-  const plain = startPrice === 0 ? 0 : endPrice / startPrice - 1;
-  if (years < 1) return { annualized: false, rate: plain, years };
-  if (startPrice <= 0 || endPrice <= 0) return { annualized: true, rate: -1, years };
+  // The card is always a CAGR. A same-session window has no elapsed year, so the rate is 0
+  // rather than the raw period change.
+  if (!(years > 0) || startPrice <= 0 || endPrice <= 0) return { annualized: true, rate: 0, years };
   return { annualized: true, rate: (endPrice / startPrice) ** (1 / years) - 1, years };
 }
 
@@ -331,9 +331,17 @@ export function hookPlate(frame: number): number {
   return 1 - easeInOut((frame - fadeStart) / (fadeEnd - fadeStart));
 }
 
+/** Share prices used on screen, rounded half-up to the cent. */
+export function roundMoney(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const sign = value < 0 ? -1 : 1;
+  return (sign * Math.round(Math.abs(value) * 100 + 1e-8)) / 100;
+}
+
 export function formatPrice(currency: string, value: number): string {
-  const body = Math.abs(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return signedMoney(currency, value, body);
+  const rounded = roundMoney(value);
+  const body = Math.abs(rounded).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return signedMoney(currency, rounded, body);
 }
 
 export function formatSignedPrice(currency: string, value: number): string {
@@ -356,7 +364,7 @@ export function formatSignedWhole(currency: string, value: number): string {
   return body;
 }
 
-export function formatPercent(fraction: number, digits = 1): string {
+export function formatPercent(fraction: number, digits = 2): string {
   const pct = fraction * 100;
   const text = Math.abs(pct).toFixed(digits);
   if (pct > 0) return `+${text}%`;
@@ -662,8 +670,12 @@ function indexForUnit(unit: number, prefix: Float64Array, weights: readonly numb
   return Math.min(count - 1, lo + (target - start) / span);
 }
 
-function inPhrase(from: string, to: string): string {
+export function formatInSpan(from: string, to: string): string {
   return `in ${spanPhrase(from, to)}`;
+}
+
+function inPhrase(from: string, to: string): string {
+  return formatInSpan(from, to);
 }
 
 function afterPhrase(from: string, to: string): string {

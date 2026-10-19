@@ -50,11 +50,17 @@ describe('live stats', () => {
     expect(later.current).toBeCloseTo(120 / 150 - 1);
   });
 
-  it('uses a plain percent before one year and CAGR after', () => {
+  it('always reports a true CAGR, including windows under a year', () => {
     const partial = growthSoFar(100, 110, '2024-01-02', '2024-06-01');
-    expect(partial.annualized).toBe(false);
-    expect(partial.rate).toBeCloseTo(0.1);
+    expect(partial.annualized).toBe(true);
     expect(partial.years).toBeLessThan(1);
+    expect(partial.years).toBeGreaterThan(0.4);
+    expect(partial.rate).toBeCloseTo(1.1 ** (1 / partial.years) - 1);
+    expect(partial.rate).toBeGreaterThan(0.2);
+
+    const sameDay = growthSoFar(100, 110, '2024-01-02', '2024-01-02');
+    expect(sameDay.annualized).toBe(true);
+    expect(sameDay.rate).toBe(0);
 
     const doubled = growthSoFar(100, 200, '2022-01-01', '2024-01-01');
     expect(doubled.annualized).toBe(true);
