@@ -4,6 +4,7 @@
   --text: #f4f6f8;
   --muted: #c5cedd;
   --line: #2a3142;
+  --field: #b7c0d0;
   font-family: Geist, sans-serif;
 }
 
@@ -30,32 +31,55 @@ body {
 .app {
   width: min(1600px, calc(100% - 80px));
   margin: 0 auto;
-  padding: 28px 0 36px;
+  padding: 20px 0 16px;
 }
 
 .bar {
   display: grid;
-  grid-template-columns: 200px minmax(0, 1fr) 200px;
-  align-items: center;
-  column-gap: 24px;
-  min-height: 56px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  column-gap: 28px;
   margin-bottom: 16px;
 }
 
 .mark {
   margin: 0;
+  padding-top: 16px;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: 0.14em;
+  line-height: 1;
   text-transform: uppercase;
   color: var(--muted);
 }
 
+.ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  column-gap: 18px;
+  row-gap: 8px;
+  min-width: 0;
+  min-height: 48px;
+}
+
 form {
   display: flex;
+  flex: 0 0 auto;
   justify-content: center;
   align-items: center;
   gap: 10px;
+}
+
+.cue {
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 28rem;
+  color: var(--muted);
+  font: 500 14px/1.35 Geist, sans-serif;
+  text-align: left;
 }
 
 label {
@@ -70,11 +94,11 @@ label {
 }
 
 input {
-  width: min(320px, 100%);
+  width: 320px;
   height: 48px;
-  background: #101218;
+  background: #141820;
   color: var(--text);
-  border: 1px solid var(--line);
+  border: 1px solid var(--field);
   border-radius: 10px;
   padding: 0 14px;
   font: 500 16px "Geist Mono", ui-monospace, monospace;
@@ -82,7 +106,11 @@ input {
 }
 
 input::placeholder {
-  color: #a8b0c0;
+  color: #c5cedd;
+}
+
+input:hover {
+  border-color: #d5dbe6;
 }
 
 button {
@@ -107,7 +135,26 @@ button:active {
 .save {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  min-width: 280px;
   min-height: 48px;
+}
+
+#replay {
+  min-width: 96px;
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--field);
+}
+
+#replay:hover {
+  background: #171b24;
+  border-color: #d5dbe6;
+}
+
+#replay:active {
+  background: #10141c;
 }
 
 #download {
@@ -128,12 +175,13 @@ canvas {
 
 #status {
   min-height: 1.4em;
-  margin: 14px 2px 0;
+  margin: 10px 2px 0;
   color: var(--muted);
-  font: 500 14px "Geist Mono", ui-monospace, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font: 500 14px/1.45 "Geist Mono", ui-monospace, monospace;
+}
+
+body[data-state='played'] #status {
+  color: var(--text);
 }
 
 body[data-state='error'] #status {
@@ -146,8 +194,12 @@ body[data-state='encoding'] #status {
 
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid #d5dbe6;
+  outline: 2px solid #f4f7fb;
   outline-offset: 2px;
+}
+
+input:focus-visible {
+  border-color: #f4f7fb;
 }
 
 @media (max-width: 720px) {
@@ -161,9 +213,23 @@ input:focus-visible {
     row-gap: 12px;
   }
 
+  .mark {
+    padding-top: 0;
+  }
+
+  .ask,
   form,
   .save {
+    align-items: flex-start;
     justify-content: flex-start;
+  }
+
+  .save {
+    min-width: 0;
+  }
+
+  .cue {
+    text-align: left;
   }
 
   input {

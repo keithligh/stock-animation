@@ -6,27 +6,30 @@ import '@fontsource/geist-mono/latin-500.css';
 import { parseYahooChart } from '../shared/parse';
 import { lastCompletedSession } from '../shared/session';
 import { canonicalizeTicker, mapRelaySymbol } from '../shared/symbols';
-import { formatMonthYear } from './insights';
 import { exportAnimation } from './export';
-import { buildAnimation, drawFrame, drawLoading, drawPoster, FRAME_COUNT, type Animation } from './render';
+import { buildAnimation, drawFrame, drawLoading, FRAME_COUNT, type Animation } from './render';
+
+const PLAYING_HINT = 'After the film ends, Download MP4 appears — encode happens in your browser.';
+const FINISHED_HINT = 'Film finished. Click Download MP4 to save it.';
 
 const form = document.querySelector<HTMLFormElement>('#form');
 const tickerInput = document.querySelector<HTMLInputElement>('#ticker');
 const playButton = document.querySelector<HTMLButtonElement>('#play');
+const replayButton = document.querySelector<HTMLButtonElement>('#replay');
 const downloadButton = document.querySelector<HTMLButtonElement>('#download');
 const statusLine = document.querySelector<HTMLParagraphElement>('#status');
 const canvas = document.querySelector<HTMLCanvasElement>('#stage');
 
-if (!form || !tickerInput || !playButton || !downloadButton || !statusLine || !canvas) {
+if (!form || !tickerInput || !playButton || !replayButton || !downloadButton || !statusLine || !canvas) {
   throw new Error('Page is missing its controls');
 }
 
 const ctx = canvas.getContext('2d', { alpha: false });
 if (!ctx) throw new Error('Canvas is unavailable');
 
-const stage: HTMLCanvasElement = canvas;
 const context: CanvasRenderingContext2D = ctx;
 const saveButton: HTMLButtonElement = downloadButton;
+const replay: HTMLButtonElement = replayButton;
 const status: HTMLParagraphElement = statusLine;
 
 let animation: Animation | null = null;
@@ -36,19 +39,23 @@ let generation = 0;
 let exportAbort: AbortController | null = null;
 let loadAbort: AbortController | null = null;
 
-// Download stays hidden until the current ticker has played through to the last frame.
-// Loading another ticker clears the stage and hides the button again.
 saveButton.hidden = true;
-let readyLine = 'Type a ticker and press Play.';
+replay.hidden = true;
 
-drawPoster(context);
 void document.fonts.ready.then(() => {
-  if (!animation && !playing && document.body.dataset.state !== 'loading') drawPoster(context);
+  if (document.body.dataset.state === 'loading') {
+    const display = canonicalizeTicker(tickerInput.value);
+    if (display) drawLoading(context, display);
+  }
 });
 
 form.addEventListener('submit', (event) => {
   event.preventDefault();
   void loadTicker(tickerInput.value);
+});
+
+replay.addEventListener('click', () => {
+  restartPlayback();
 });
 
 downloadButton.addEventListener('click', () => {
@@ -77,12 +84,14 @@ window.__anim = {
   finish() {
     if (!animation) return;
     playing = false;
+    generation += 1;
     drawFrame(context, animation, FRAME_COUNT - 1);
-    document.body.dataset.state = 'played';
-    saveButton.hidden = false;
-    saveButton.textContent = 'Download MP4';
+    markFinished();
   },
 };
+
+if (!tickerInput.value.trim()) tickerInput.value = 'NVDA';
+void loadTicker(tickerInput.value);
 
 async function loadTicker(raw: string): Promise<void> {
   const display = canonicalizeTicker(raw);
@@ -90,6 +99,7 @@ async function loadTicker(raw: string): Promise<void> {
   if (!display || !mapped) {
     setStatus('Use a ticker like 0700.HK or NVDA.');
     document.body.dataset.state = 'error';
+    replay.hidden = !animation;
     return;
   }
   exportAbort?.abort();
@@ -101,6 +111,7 @@ async function loadTicker(raw: string): Promise<void> {
   animation = null;
   saveButton.hidden = true;
   saveButton.textContent = 'Download MP4';
+  replay.hidden = true;
   document.body.dataset.state = 'loading';
   drawLoading(context, display);
   setStatus(`Loading ${display}…`);
@@ -120,12 +131,13 @@ async function loadTicker(raw: string): Promise<void> {
     saveButton.hidden = true;
     saveButton.textContent = 'Download MP4';
     document.body.dataset.state = 'ready';
-    readyLine = `${labelFor(next.symbol)} · ${next.name} · ${formatMonthYear(next.dates[0] ?? '')} – ${formatMonthYear(next.dates[next.dates.length - 1] ?? '')}`;
-    setStatus(readyLine);
+    replay.hidden = false;
+    setStatus(PLAYING_HINT);
     startPlayback();
   } catch (error) {
     if (abort.signal.aborted) return;
     document.body.dataset.state = 'error';
+    replay.hidden = true;
     setStatus(error instanceof Error ? error.message : 'Could not load that ticker.');
   }
 }
@@ -155,9 +167,22 @@ async function fetchChart(symbol: string, session: string, signal: AbortSignal):
   }
 }
 
+function restartPlayback(): void {
+  if (!animation || exportAbort || document.body.dataset.state === 'loading') return;
+  generation += 1;
+  playing = false;
+  saveButton.hidden = true;
+  saveButton.textContent = 'Download MP4';
+  document.body.dataset.state = 'ready';
+  replay.hidden = false;
+  setStatus(PLAYING_HINT);
+  startPlayback();
+}
+
 function startPlayback(): void {
   const gen = generation;
   playing = true;
+  if (animation) drawFrame(context, animation, 0);
   clockStart = performance.now();
   requestAnimationFrame((now) => {
     if (gen !== generation) return;
@@ -172,13 +197,18 @@ function tick(now: number, gen: number): void {
   drawFrame(context, animation, frame);
   if (frame >= FRAME_COUNT - 1) {
     playing = false;
-    document.body.dataset.state = 'played';
-    saveButton.hidden = false;
-    saveButton.textContent = 'Download MP4';
-    setStatus(readyLine);
+    markFinished();
     return;
   }
   requestAnimationFrame((next) => tick(next, gen));
+}
+
+function markFinished(): void {
+  document.body.dataset.state = 'played';
+  saveButton.hidden = false;
+  saveButton.textContent = 'Download MP4';
+  replay.hidden = !animation;
+  setStatus(FINISHED_HINT);
 }
 
 async function download(current: Animation): Promise<void> {
@@ -187,6 +217,7 @@ async function download(current: Animation): Promise<void> {
   document.body.dataset.state = 'encoding';
   saveButton.hidden = false;
   saveButton.textContent = '0% · Cancel';
+  replay.hidden = true;
   playing = false;
   try {
     const result = await exportAnimation(current, (frame, total) => {
@@ -217,8 +248,9 @@ async function download(current: Animation): Promise<void> {
     saveButton.textContent = 'Download MP4';
     if (document.body.dataset.state === 'encoding') {
       document.body.dataset.state = 'played';
-      setStatus(readyLine);
+      setStatus(FINISHED_HINT);
     }
+    replay.hidden = !animation || document.body.dataset.state === 'loading';
   }
 }
 

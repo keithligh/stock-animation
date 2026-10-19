@@ -6,21 +6,33 @@
     <title>Stock animation</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body data-state="empty">
+  <body data-state="loading">
     <div class="app">
       <header class="bar">
         <p class="mark">Stock animation</p>
-        <form id="form">
-          <label for="ticker">Ticker</label>
-          <input id="ticker" name="ticker" autocomplete="off" spellcheck="false" placeholder="NVDA, AAPL, 0700.HK" />
-          <button id="play" type="submit">Play</button>
-        </form>
+        <div class="ask">
+          <form id="form">
+            <label for="ticker">Ticker</label>
+            <input
+              id="ticker"
+              name="ticker"
+              value="NVDA"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="NVDA, AAPL, 0700.HK"
+              aria-describedby="cue"
+            />
+            <button id="play" type="submit">Play</button>
+          </form>
+          <p id="cue" class="cue">Enter a ticker (NVDA, AAPL, 0700.HK) and press Play.</p>
+        </div>
         <div class="save">
+          <button id="replay" type="button" hidden>Replay</button>
           <button id="download" type="button" hidden>Download MP4</button>
         </div>
       </header>
       <canvas id="stage" width="1920" height="1080"></canvas>
-      <p id="status" role="status">Type a ticker and press Play.</p>
+      <p id="status" role="status">Loading NVDA…</p>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
